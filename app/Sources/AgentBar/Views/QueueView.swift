@@ -93,9 +93,13 @@ struct QueueView: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .help(group.cwd)
-            ForEach(group.items) { item in
+            ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
                 itemView(item)
-                Divider()
+                // Divider only between items, not after the last one, so a
+                // group doesn't end with a stray trailing rule.
+                if index < group.items.count - 1 {
+                    Divider()
+                }
             }
         }
     }
