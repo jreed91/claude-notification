@@ -1,11 +1,16 @@
 import SwiftUI
+import AppKit
 
 /// The popover content: a header with the pending count and a Settings gear, then the
 /// pending items grouped by session (labelled with the project directory), newest first.
 struct QueueView: View {
     @ObservedObject private var queue = AppState.shared.queue
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
+        // Let the window size itself to the content and cap only the scrollable
+        // region. Constraining the outer VStack's height fights MenuBarExtra's
+        // window auto-sizing and clips the header off the top.
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
@@ -20,10 +25,10 @@ struct QueueView: View {
                     }
                     .padding(12)
                 }
+                .frame(maxHeight: 460)
             }
         }
         .frame(width: 380)
-        .frame(minHeight: 120, maxHeight: 520)
     }
 
     // MARK: - Header
@@ -38,7 +43,13 @@ struct QueueView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            SettingsLink {
+            Button {
+                // As an accessory (LSUIElement) app AgentBar is never the active
+                // app, so opening Settings alone leaves the window buried behind
+                // other apps. Activate first, then open, so it comes to the front.
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
+            } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
