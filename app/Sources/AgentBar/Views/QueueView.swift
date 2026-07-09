@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The popover content: a header with the pending count and a Settings gear, then the
 /// pending items grouped by session (labelled with the project directory), newest first.
@@ -6,6 +7,9 @@ struct QueueView: View {
     @ObservedObject private var queue = AppState.shared.queue
 
     var body: some View {
+        // Let the window size itself to the content and cap only the scrollable
+        // region. Constraining the outer VStack's height fights MenuBarExtra's
+        // window auto-sizing and clips the header off the top.
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
@@ -20,10 +24,10 @@ struct QueueView: View {
                     }
                     .padding(12)
                 }
+                .frame(maxHeight: 460)
             }
         }
         .frame(width: 380)
-        .frame(minHeight: 120, maxHeight: 520)
     }
 
     // MARK: - Header
@@ -38,7 +42,9 @@ struct QueueView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            SettingsLink {
+            Button {
+                openSettings()
+            } label: {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
@@ -129,5 +135,14 @@ struct QueueView: View {
     private func projectName(_ cwd: String) -> String {
         let name = URL(fileURLWithPath: cwd).lastPathComponent
         return name.isEmpty ? cwd : name
+    }
+
+    /// Opens the SwiftUI `Settings` scene window. As an accessory (LSUIElement)
+    /// app AgentBar is never the active app, so opening the window alone leaves
+    /// it buried behind other apps — activate first so it comes to the front.
+    /// The Settings scene installs the `showSettingsWindow:` action on macOS 13+.
+    private func openSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
