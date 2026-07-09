@@ -12,7 +12,12 @@ enum TerminalFocus {
         "com.github.wez.wezterm",       // WezTerm
         "com.mitchellh.ghostty",        // Ghostty
         "com.microsoft.VSCode",         // Visual Studio Code
-        "com.todesktop.230313mzl4w4u92" // Cursor
+        "com.todesktop.230313mzl4w4u92", // Cursor
+        "dev.zed.Zed",                  // Zed
+        "com.jetbrains.WebStorm",       // WebStorm
+        "com.jetbrains.intellij",       // IntelliJ IDEA Ultimate
+        "com.jetbrains.intellij.ce",    // IntelliJ IDEA Community
+        "com.jetbrains.rider"           // Rider
     ]
 
     @MainActor
