@@ -30,8 +30,12 @@ final class AppState: ObservableObject {
         UserDefaults.standard.register(defaults: [
             "notifyQuestions": true,
             "notifyPermissions": true,
+            "notifyElicitations": true,
             "notifyIdle": true,
             "notifyTaskFinished": true,
+            "notifySubagent": true,
+            "notifySessionEnd": true,
+            "notifyErrors": true,
             "playSound": true
         ])
     }

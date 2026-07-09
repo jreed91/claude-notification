@@ -14,8 +14,10 @@ Claude Code session → plugin hook → AgentBar local server → menu bar / ban
         session continues with your answer ◀── answer fed back ──────┘
 ```
 
-1. The plugin registers hooks for `AskUserQuestion`, permission requests, idle
-   notifications, and task-finished (`Stop`) events.
+1. The plugin registers hooks across Claude Code's interaction points: questions
+   (`AskUserQuestion`), permission requests, MCP input requests (`Elicitation`), idle
+   notifications, and the task-finished / subagent-finished / session-ended /
+   run-interrupted (`Stop`, `SubagentStop`, `SessionEnd`, `StopFailure`) events.
 2. When one fires, the bundled `bin/agentbar-hook` script reads the payload and POSTs it
    to AgentBar's local HTTP server (`127.0.0.1`, ephemeral port, per-launch bearer token
    published to `~/Library/Application Support/AgentBar/server.json`). It launches the
@@ -63,12 +65,17 @@ The plugin's hooks activate automatically on install — no `settings.json` edit
 |---|---|---|
 | **Question** (`AskUserQuestion`) | Pick an option or type a free-text reply | A blocking hook is in flight, so your answer can be fed back as the agent's answer. |
 | **Permission request** | Allow, or Deny with an optional message | A blocking hook can return an allow/deny decision to Claude Code. |
+| **MCP input request** (`Elicitation`) | Fill in the requested fields and Send, or Decline / Cancel | A blocking hook can return the form values (or a decline/cancel action) to the MCP server. |
 | **Idle / waiting** | Notify only — focuses your terminal | No hook can inject a new message into an idle session, so there is nothing to reply to. |
 | **Task finished** (`Stop`) | Notify only — focuses your terminal | Informational; the turn is already complete. |
+| **Subagent finished** (`SubagentStop`) | Notify only | Informational; a spawned subagent completed. |
+| **Session ended** (`SessionEnd`) | Notify only | Informational; the session closed. |
+| **Run interrupted** (`StopFailure`) | Notify only | Surfaces API errors such as rate limits, overload, or billing problems. |
 
-Questions and permissions are interactive because a hook is blocking and can carry a
-response back. Idle and task-finished are notify-only: the banner just brings your
-terminal back to the front.
+Questions, permissions, and MCP input requests are interactive because a hook is blocking
+and can carry a response back. The rest are notify-only: the banner just brings your
+terminal back to the front. Every event has a toggle in Settings, so chatty ones (subagent
+and session-end in particular) can be muted individually.
 
 ## Development
 
@@ -92,7 +99,7 @@ claude-notification/
 ├── docs/implementation-plan.md        # full design & decisions
 ├── plugin/                            # the Claude Code plugin ("agentbar")
 │   ├── .claude-plugin/plugin.json
-│   ├── hooks/hooks.json               # PreToolUse / PermissionRequest / Notification / Stop
+│   ├── hooks/hooks.json               # PreToolUse / PermissionRequest / Elicitation / Notification / Stop / SubagentStop / SessionEnd / StopFailure
 │   └── bin/agentbar-hook              # dependency-free bash bridge (curl + sed)
 ├── app/                               # Swift package for AgentBar.app
 │   ├── Package.swift

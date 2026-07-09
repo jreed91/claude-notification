@@ -73,6 +73,49 @@ final class QueueStore: ObservableObject {
             )
             enqueueInfo(item)
             return nil
+
+        case .elicit:
+            guard settingEnabled("notifyElicitations") else { return nil }
+            let request = HookPayload.elicitation(from: parsed.raw)
+            let item = PendingItem(
+                sessionID: parsed.sessionID,
+                cwd: parsed.cwd,
+                kind: .elicitation(request)
+            )
+            return await enqueueBlocking(item)
+
+        case .subagentStop:
+            guard settingEnabled("notifySubagent") else { return nil }
+            let body = parsed.lastAssistantMessage ?? parsed.message ?? "A subagent finished."
+            let item = PendingItem(
+                sessionID: parsed.sessionID,
+                cwd: parsed.cwd,
+                kind: .info(title: "Subagent finished", body: body)
+            )
+            enqueueInfo(item)
+            return nil
+
+        case .sessionEnd:
+            guard settingEnabled("notifySessionEnd") else { return nil }
+            let body = parsed.endReason.map { "Session ended (\($0))." } ?? "The Claude Code session ended."
+            let item = PendingItem(
+                sessionID: parsed.sessionID,
+                cwd: parsed.cwd,
+                kind: .info(title: "Session ended", body: body)
+            )
+            enqueueInfo(item)
+            return nil
+
+        case .stopFailure:
+            guard settingEnabled("notifyErrors") else { return nil }
+            let detail = parsed.errorMessage ?? parsed.errorType ?? "The turn ended due to an error."
+            let item = PendingItem(
+                sessionID: parsed.sessionID,
+                cwd: parsed.cwd,
+                kind: .info(title: "Claude run interrupted", body: detail)
+            )
+            enqueueInfo(item)
+            return nil
         }
     }
 
@@ -130,6 +173,40 @@ final class QueueStore: ObservableObject {
             "hookSpecificOutput": [
                 "hookEventName": "PermissionRequest",
                 "decision": decision
+            ]
+        ])
+        resolve(item, with: json)
+    }
+
+    /// Accepts an MCP elicitation, returning the collected field values as `content`.
+    func submitElicitation(item: PendingItem, content: [String: Any]) {
+        let json = makeJSON([
+            "hookSpecificOutput": [
+                "hookEventName": "Elicitation",
+                "action": "accept",
+                "content": content
+            ]
+        ])
+        resolve(item, with: json)
+    }
+
+    /// Declines an MCP elicitation (the user refuses to provide the requested input).
+    func declineElicitation(item: PendingItem) {
+        let json = makeJSON([
+            "hookSpecificOutput": [
+                "hookEventName": "Elicitation",
+                "action": "decline"
+            ]
+        ])
+        resolve(item, with: json)
+    }
+
+    /// Cancels an MCP elicitation (the user dismisses the request without deciding).
+    func cancelElicitation(item: PendingItem) {
+        let json = makeJSON([
+            "hookSpecificOutput": [
+                "hookEventName": "Elicitation",
+                "action": "cancel"
             ]
         ])
         resolve(item, with: json)

@@ -5,8 +5,12 @@ import ServiceManagement
 struct SettingsView: View {
     @AppStorage("notifyQuestions") private var notifyQuestions = true
     @AppStorage("notifyPermissions") private var notifyPermissions = true
+    @AppStorage("notifyElicitations") private var notifyElicitations = true
     @AppStorage("notifyIdle") private var notifyIdle = true
     @AppStorage("notifyTaskFinished") private var notifyTaskFinished = true
+    @AppStorage("notifySubagent") private var notifySubagent = true
+    @AppStorage("notifySessionEnd") private var notifySessionEnd = true
+    @AppStorage("notifyErrors") private var notifyErrors = true
     @AppStorage("playSound") private var playSound = true
 
     @State private var launchAtLogin = false
@@ -17,8 +21,12 @@ struct SettingsView: View {
             Section("Notify me about") {
                 Toggle("Questions", isOn: $notifyQuestions)
                 Toggle("Permission requests", isOn: $notifyPermissions)
+                Toggle("MCP input requests", isOn: $notifyElicitations)
                 Toggle("Idle / waiting for input", isOn: $notifyIdle)
                 Toggle("Task finished", isOn: $notifyTaskFinished)
+                Toggle("Subagent finished", isOn: $notifySubagent)
+                Toggle("Session ended", isOn: $notifySessionEnd)
+                Toggle("Errors & interruptions", isOn: $notifyErrors)
             }
 
             Section("Banners") {
