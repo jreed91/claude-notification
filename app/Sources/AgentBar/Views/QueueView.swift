@@ -5,7 +5,6 @@ import AppKit
 /// pending items grouped by session (labelled with the project directory), newest first.
 struct QueueView: View {
     @ObservedObject private var queue = AppState.shared.queue
-    @Environment(\.openSettings) private var openSettingsAction
 
     var body: some View {
         // Let the window size itself to the content and cap only the scrollable
@@ -43,12 +42,19 @@ struct QueueView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Button {
-                openSettings()
-            } label: {
+            SettingsLink {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded {
+                // As an accessory (LSUIElement) app AgentBar is never the active
+                // app, so the Settings window opens buried behind other apps.
+                // SettingsLink reliably opens the scene; defer activation to the
+                // next runloop tick so the freshly-opened window comes to front.
+                DispatchQueue.main.async {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            })
         }
         .padding(12)
     }
@@ -142,16 +148,4 @@ struct QueueView: View {
         return name.isEmpty ? cwd : name
     }
 
-    /// Opens the SwiftUI `Settings` scene window. As an accessory (LSUIElement)
-    /// app AgentBar is never the active app, so opening the window alone leaves
-    /// it buried behind other apps — activate first so it comes to the front.
-    ///
-    /// Uses the `openSettings` environment action (macOS 14+) rather than the
-    /// private `showSettingsWindow:`/`showPreferencesWindow:` selector, which
-    /// isn't reliably installed in the responder chain of a `MenuBarExtra`
-    /// accessory app and so silently no-ops.
-    private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        openSettingsAction()
-    }
 }
