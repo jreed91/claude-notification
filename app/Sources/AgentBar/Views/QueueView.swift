@@ -42,12 +42,19 @@ struct QueueView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Button {
-                openSettings()
-            } label: {
+            SettingsLink {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded {
+                // As an accessory (LSUIElement) app AgentBar is never the active
+                // app, so the Settings window opens buried behind other apps.
+                // SettingsLink reliably opens the scene; defer activation to the
+                // next runloop tick so the freshly-opened window comes to front.
+                DispatchQueue.main.async {
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+            })
         }
         .padding(12)
     }
@@ -141,12 +148,4 @@ struct QueueView: View {
         return name.isEmpty ? cwd : name
     }
 
-    /// Opens the SwiftUI `Settings` scene window. As an accessory (LSUIElement)
-    /// app AgentBar is never the active app, so opening the window alone leaves
-    /// it buried behind other apps — activate first so it comes to the front.
-    /// The Settings scene installs the `showSettingsWindow:` action on macOS 13+.
-    private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-    }
 }
