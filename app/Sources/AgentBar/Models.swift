@@ -1,13 +1,40 @@
 import Foundation
 import Combine
 
-/// The four hook events AgentBar handles, matching the plugin's `agentbar-hook <event>`
-/// argument and the server routes `/v1/<event>`.
+/// The hook events AgentBar handles, matching the plugin's `agentbar-hook <event>`
+/// argument and the server routes `/v1/<event>`. The raw value is the route/token.
 enum HookEvent: String {
+    // Interactive (blocking — the held HTTP request carries a response back).
     case ask
     case permission
+    case elicit
+    // Informational (notify-only — enqueue an auto-expiring row, return immediately).
     case notify
     case stop
+    case subagentStop = "subagent"
+    case sessionEnd = "sessionend"
+    case stopFailure = "stopfailure"
+}
+
+/// One field in an MCP elicitation form, derived from the request's JSON Schema.
+/// MCP restricts elicitation schemas to flat objects of primitive properties, so
+/// a field is always one of these simple kinds.
+struct ElicitationField: Identifiable, Hashable {
+    enum Kind: Hashable { case text, number, integer, boolean, choice }
+    let id = UUID()
+    let key: String
+    let title: String
+    let description: String?
+    let kind: Kind
+    let choices: [String]
+    let required: Bool
+}
+
+/// A parsed MCP elicitation request: a prompt message plus the fields to collect.
+struct ElicitationRequest: Hashable {
+    let serverName: String?
+    let message: String
+    let fields: [ElicitationField]
 }
 
 /// One selectable option inside an `AskUserQuestion` question.
@@ -35,15 +62,29 @@ struct HookPayload {
     let toolInput: [String: Any]?
     let message: String?
     let hookEventName: String?
+    /// Final assistant text of the turn (Stop / SubagentStop).
+    let lastAssistantMessage: String?
+    /// Why a session ended (SessionEnd) or a turn failed (StopFailure).
+    let endReason: String?
+    let errorType: String?
+    let errorMessage: String?
+    /// The full decoded payload, kept for events whose exact field layout is not
+    /// pinned in the public docs (e.g. Elicitation) so we can probe defensively.
+    let raw: [String: Any]
 
     init(data: Data) {
         let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        self.raw = dict
         self.sessionID = (dict["session_id"] as? String) ?? ""
         self.cwd = (dict["cwd"] as? String) ?? ""
         self.toolName = dict["tool_name"] as? String
         self.toolInput = dict["tool_input"] as? [String: Any]
         self.message = dict["message"] as? String
         self.hookEventName = dict["hook_event_name"] as? String
+        self.lastAssistantMessage = dict["last_assistant_message"] as? String
+        self.endReason = (dict["end_reason"] as? String) ?? (dict["reason"] as? String)
+        self.errorType = dict["error_type"] as? String
+        self.errorMessage = dict["error_message"] as? String
     }
 
     /// Extracts the questions array from an `AskUserQuestion` `tool_input`:
@@ -63,6 +104,62 @@ struct HookPayload {
                 header: entry["header"] as? String,
                 options: options,
                 multiSelect: (entry["multiSelect"] as? Bool) ?? false
+            )
+        }
+    }
+
+    /// Parses an MCP elicitation request out of the raw payload. The Claude Code hook
+    /// docs do not pin the exact field layout for `Elicitation`, so we probe the
+    /// conventional MCP locations (`message`, `requestedSchema`) plus a couple of
+    /// plausible aliases, and degrade to a message-only request (no fields) when the
+    /// schema is absent or unrecognized.
+    static func elicitation(from raw: [String: Any]) -> ElicitationRequest {
+        let message = (raw["message"] as? String)
+            ?? (nestedDict(raw, "elicitation")?["message"] as? String)
+            ?? (nestedDict(raw, "params")?["message"] as? String)
+            ?? "An MCP server is requesting input."
+        let server = (raw["server_name"] as? String)
+            ?? (raw["mcp_server"] as? String)
+            ?? (raw["server"] as? String)
+        let schema = (raw["requestedSchema"] as? [String: Any])
+            ?? (raw["form_schema"] as? [String: Any])
+            ?? (raw["schema"] as? [String: Any])
+            ?? (nestedDict(raw, "elicitation")?["requestedSchema"] as? [String: Any])
+            ?? (nestedDict(raw, "params")?["requestedSchema"] as? [String: Any])
+        return ElicitationRequest(serverName: server, message: message, fields: fields(from: schema))
+    }
+
+    private static func nestedDict(_ raw: [String: Any], _ key: String) -> [String: Any]? {
+        raw[key] as? [String: Any]
+    }
+
+    /// Turns a JSON-Schema `properties` object into ordered elicitation fields. Object
+    /// key order is not preserved through `JSONSerialization`, so fields are sorted by
+    /// key for a stable, deterministic layout.
+    private static func fields(from schema: [String: Any]?) -> [ElicitationField] {
+        guard let schema, let props = schema["properties"] as? [String: Any] else { return [] }
+        let required = Set((schema["required"] as? [String]) ?? [])
+        return props.keys.sorted().map { key in
+            let spec = props[key] as? [String: Any] ?? [:]
+            let choices = (spec["enum"] as? [Any])?.map { String(describing: $0) } ?? []
+            let kind: ElicitationField.Kind
+            if !choices.isEmpty {
+                kind = .choice
+            } else {
+                switch (spec["type"] as? String) ?? "string" {
+                case "boolean": kind = .boolean
+                case "integer": kind = .integer
+                case "number": kind = .number
+                default: kind = .text
+                }
+            }
+            return ElicitationField(
+                key: key,
+                title: (spec["title"] as? String) ?? key,
+                description: spec["description"] as? String,
+                kind: kind,
+                choices: choices,
+                required: required.contains(key)
             )
         }
     }
@@ -90,6 +187,7 @@ final class PendingItem: Identifiable, ObservableObject {
     enum Kind {
         case question([AskQuestion])
         case permission(toolName: String, detail: String)
+        case elicitation(ElicitationRequest)
         case info(title: String, body: String)
     }
 
@@ -113,7 +211,7 @@ final class PendingItem: Identifiable, ObservableObject {
     /// True for items the user still has to respond to; drives the menu-bar badge count.
     var needsResponse: Bool {
         switch kind {
-        case .question, .permission: return true
+        case .question, .permission, .elicitation: return true
         case .info: return false
         }
     }

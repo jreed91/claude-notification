@@ -165,10 +165,18 @@ final class HookServer {
             dispatch(.ask, body: request.body, connection: connection)
         case ("POST", "/v1/permission"):
             dispatch(.permission, body: request.body, connection: connection)
+        case ("POST", "/v1/elicit"):
+            dispatch(.elicit, body: request.body, connection: connection)
         case ("POST", "/v1/notify"):
             dispatch(.notify, body: request.body, connection: connection)
         case ("POST", "/v1/stop"):
             dispatch(.stop, body: request.body, connection: connection)
+        case ("POST", "/v1/subagent"):
+            dispatch(.subagentStop, body: request.body, connection: connection)
+        case ("POST", "/v1/sessionend"):
+            dispatch(.sessionEnd, body: request.body, connection: connection)
+        case ("POST", "/v1/stopfailure"):
+            dispatch(.stopFailure, body: request.body, connection: connection)
         default:
             respond(connection, status: 404, body: "not found")
         }

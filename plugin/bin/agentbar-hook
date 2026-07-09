@@ -3,7 +3,8 @@
 # agentbar-hook — bridge between Claude Code hooks and the AgentBar menu bar app.
 #
 # Usage: agentbar-hook <event>
-#   event: ask | permission | notify | stop
+#   blocking (waits for the human): ask | permission | elicit
+#   informational (returns at once): notify | stop | subagent | sessionend | stopfailure
 #
 # Reads the hook payload from stdin, forwards it to AgentBar's local HTTP
 # server, and prints the server's response (hook JSON output) to stdout.
@@ -58,8 +59,8 @@ fi
 
 # Blocking events wait for the human; informational events return immediately.
 case "$EVENT" in
-  ask|permission) MAX_TIME=590 ;;
-  *)              MAX_TIME=5 ;;
+  ask|permission|elicit) MAX_TIME=590 ;;
+  *)                      MAX_TIME=5 ;;
 esac
 
 RESPONSE="$(curl -sf -m "$MAX_TIME" -X POST \

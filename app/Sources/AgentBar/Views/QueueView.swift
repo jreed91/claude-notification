@@ -118,6 +118,8 @@ struct QueueView: View {
             QuestionItemView(item: item, questions: questions, queue: queue)
         case .permission(let toolName, let detail):
             PermissionItemView(item: item, toolName: toolName, detail: detail, queue: queue)
+        case .elicitation(let request):
+            ElicitationItemView(item: item, request: request, queue: queue)
         case .info(let title, let body):
             infoRow(item: item, title: title, body: body)
         }

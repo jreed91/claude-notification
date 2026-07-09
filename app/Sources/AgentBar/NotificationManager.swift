@@ -27,6 +27,9 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         case .permission(let toolName, _):
             content.title = "Permission request"
             content.body = "Claude wants to use \(toolName)."
+        case .elicitation(let request):
+            content.title = "Claude needs input"
+            content.body = request.message
         case .info(let title, let body):
             content.title = title
             content.body = body
@@ -86,7 +89,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         case .permission:
             actions.append(UNNotificationAction(identifier: "allow", title: "Allow", options: []))
             actions.append(UNNotificationAction(identifier: "deny", title: "Deny", options: [.destructive]))
-        case .info:
+        case .elicitation, .info:
+            // Elicitation forms are filled in the popover, not from the banner.
             break
         }
 
