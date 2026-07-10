@@ -188,7 +188,7 @@ struct QueueView: View {
 
             // The ask line — clickable to bring the terminal forward.
             Button {
-                TerminalFocus.focus(preferred: item.hostBundleID)
+                TerminalFocus.focus(hint: item.terminalHint)
             } label: {
                 Text("└─ \(askText(item))")
                     .font(feedFont(11))
@@ -225,11 +225,11 @@ struct QueueView: View {
     private func actions(for item: PendingItem) -> some View {
         HStack(spacing: 10) {
             if item.needsResponse {
-                KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(preferred: item.hostBundleID) }
+                KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(hint: item.terminalHint) }
                 KeycapButton(key: "d", label: "dismiss", style: .deny) { queue.dismiss(item) }
             } else {
                 KeycapButton(key: "d", label: "dismiss", style: .deny) { queue.dismiss(item) }
-                KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(preferred: item.hostBundleID) }
+                KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(hint: item.terminalHint) }
             }
             Spacer(minLength: 0)
         }
