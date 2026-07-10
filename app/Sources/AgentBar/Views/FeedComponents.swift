@@ -215,24 +215,28 @@ struct DashedRule: View {
 // MARK: - LIVE badge
 
 /// The blinking "LIVE" pill in the popover's title bar.
+///
+/// The blink is driven by `TimelineView`, not `withAnimation(...).repeatForever(...)`. In a
+/// `MenuBarExtra(.window)` popover a repeating implicit animation leaks its transaction into
+/// the hosting window and makes the whole popover bounce/jitter; a timeline just recomputes
+/// opacity per tick with no animation transaction. The hard on/off step also matches the
+/// design's `steps(1)` blink.
 struct LiveBadge: View {
-    @State private var on = true
+    private let period = 0.7
 
     var body: some View {
-        Text("LIVE")
-            .font(feedFont(9, .bold))
-            .tracking(0.7)
-            .foregroundStyle(Color.feedInk)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(Color.feedGreen)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .opacity(on ? 1 : 0.35)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
-                    on = false
-                }
-            }
+        TimelineView(.periodic(from: .now, by: period)) { context in
+            let lit = Int(context.date.timeIntervalSinceReferenceDate / period) % 2 == 0
+            Text("LIVE")
+                .font(feedFont(9, .bold))
+                .tracking(0.7)
+                .foregroundStyle(Color.feedInk)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.feedGreen)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .opacity(lit ? 1 : 0.4)
+        }
     }
 }
 
