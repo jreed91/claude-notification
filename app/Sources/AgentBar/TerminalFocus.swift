@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 /// Best-effort focus of the user's terminal / editor. For notify-only events (idle / task
 /// finished) there is nothing to answer — we just bring the session's window back.
@@ -36,17 +37,34 @@ enum TerminalFocus {
         "com.google.android.studio",
     ]
 
-    /// Brings the session's terminal / IDE forward. Resolves the hint to a concrete running
-    /// app (preferring signals the terminal sets itself over `__CFBundleIdentifier`, which
-    /// can be stale); falls back to the first running app in the priority list.
+    /// Brings the session's terminal / IDE forward. When Accessibility is granted and we
+    /// know the session's working directory, it raises the *specific* window whose title
+    /// matches the project — so the right window comes forward even when many are open.
+    /// Without that (permission not granted, no cwd, or no title match) it degrades to
+    /// activating the whole app, exactly as before.
     @MainActor
-    static func focus(hint: TerminalHint? = nil) {
-        if let bundleID = resolve(hint), activate(bundleID) {
-            return
+    static func focus(hint: TerminalHint? = nil, cwd: String? = nil) {
+        // The app(s) that might host this session: the hinted one when we have a hint,
+        // otherwise every running terminal / editor we know about (so a scanned/idle row
+        // with no hint can still be matched by its working directory below).
+        let apps: [NSRunningApplication]
+        if let bundleID = resolve(hint), let app = running(bundleID) {
+            apps = [app]
+        } else {
+            apps = bundleIDs.compactMap { running($0) }
         }
-        for bundleID in bundleIDs where activate(bundleID) {
-            return
+        guard !apps.isEmpty else { return }
+
+        // Precise path: raise the exact window for this session's project.
+        if let cwd, !cwd.isEmpty, ensureTrusted() {
+            for app in apps where raiseWindow(matchingProjectAt: cwd, pid: app.processIdentifier) {
+                app.activate(options: [])
+                return
+            }
         }
+
+        // Fallback: bring the most likely app forward with all its windows.
+        apps.first?.activate(options: [.activateAllWindows])
     }
 
     /// Resolves a terminal hint to a bundle id, in order of signal reliability.
@@ -102,13 +120,51 @@ enum TerminalFocus {
         ids.first { !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty }
     }
 
-    /// Activates the running app with the given bundle id; returns false if none is running.
+    /// The running instance of a bundle id, if any.
     @MainActor
-    private static func activate(_ bundleID: String) -> Bool {
-        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+    private static func running(_ bundleID: String) -> NSRunningApplication? {
+        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+    }
+
+    // MARK: - Accessibility (window-level focus)
+
+    /// Whether AgentBar has Accessibility permission, prompting once if not. Returns the
+    /// current trust state; when false the caller degrades to app-level activation, so focus
+    /// keeps working (less precisely) until the user grants it in System Settings.
+    @MainActor
+    private static func ensureTrusted() -> Bool {
+        if AXIsProcessTrusted() { return true }
+        // The literal value of `kAXTrustedCheckOptionPrompt`; used directly because that
+        // constant's Swift import shape (Unmanaged<CFString> vs CFString) varies by SDK.
+        let options: NSDictionary = ["AXTrustedCheckOptionPrompt": true]
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    /// Raises the first window of `pid` whose title contains the project — the last path
+    /// component of `cwd`. Terminals and editors put the working directory / open folder in
+    /// their window or tab title, so this singles out the session's own window among many.
+    /// Requires Accessibility; returns false when unavailable or nothing matches.
+    private static func raiseWindow(matchingProjectAt cwd: String, pid: pid_t) -> Bool {
+        let project = URL(fileURLWithPath: cwd).lastPathComponent
+        guard !project.isEmpty else { return false }
+
+        let app = AXUIElementCreateApplication(pid)
+        var windowsValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+              let windows = windowsValue as? [AXUIElement] else {
             return false
         }
-        app.activate(options: [.activateAllWindows])
-        return true
+
+        for window in windows {
+            var titleValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
+                  let title = titleValue as? String,
+                  title.localizedCaseInsensitiveContains(project) else {
+                continue
+            }
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            return true
+        }
+        return false
     }
 }

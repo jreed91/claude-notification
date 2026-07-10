@@ -224,7 +224,7 @@ struct QueueView: View {
 
             // The session's title (first prompt / summary) — clickable to focus its terminal.
             Button {
-                TerminalFocus.focus(hint: row.terminalHint)
+                TerminalFocus.focus(hint: row.terminalHint, cwd: row.cwd)
             } label: {
                 Text("└─ \(row.title)")
                     .font(feedFont(11))
@@ -271,7 +271,7 @@ struct QueueView: View {
     @ViewBuilder
     private func actions(for row: SessionRow, attention: PendingItem?) -> some View {
         HStack(spacing: 10) {
-            KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(hint: row.terminalHint) }
+            KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(hint: row.terminalHint, cwd: row.cwd) }
             if attention != nil {
                 KeycapButton(key: "d", label: "dismiss", style: .deny) { dismissLive(row) }
             }
