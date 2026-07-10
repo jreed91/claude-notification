@@ -187,11 +187,19 @@ final class QueueStore: ObservableObject {
             ))
         }
 
-        return rows.sorted { lhs, rhs in
-            let l = statusRank(lhs.status), r = statusRank(rhs.status)
-            if l != r { return l < r }
-            return lhs.lastActivity > rhs.lastActivity
+        // One row per location: a project run many times collapses to just its most-recent
+        // session. A session with a live event has `lastActivity` bumped to now, so the
+        // active one naturally wins its location. Sessions with no cwd key on their id so
+        // they are never merged together.
+        var byLocation: [String: SessionRow] = [:]
+        for row in rows {
+            let key = row.cwd.isEmpty ? row.id : row.cwd
+            if let existing = byLocation[key], existing.lastActivity >= row.lastActivity { continue }
+            byLocation[key] = row
         }
+
+        // Most recent first.
+        return byLocation.values.sorted { $0.lastActivity > $1.lastActivity }
     }
 
     /// Loudest live event wins the row's status; `.idle` when there is nothing live.
