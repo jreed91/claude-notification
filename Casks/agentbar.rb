@@ -1,6 +1,6 @@
 cask "agentbar" do
-  version "1.3.0"
-  sha256 "3ae27f9de8152feff9f4fe3d34ee5ce64d062475fa97abdee6b4df02df21d6a9"
+  version "1.4.0"
+  sha256 "f849ec467ae7ba359dd1293e74c757f767b1bd80ece87b9d6d31800155d48204"
 
   url "https://github.com/jreed91/claude-notification/releases/download/v#{version}/AgentBar-#{version}.zip"
   name "AgentBar"
