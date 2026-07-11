@@ -29,6 +29,9 @@ struct SessionRow: Identifiable {
     /// "working …" elapsed timer. Nil when no turn is in flight, or when AgentBar started
     /// mid-turn and never caught the `working` hook.
     let workingSince: Date?
+    /// The session's recent-activity trail (from the transcript), oldest-first, for the
+    /// read-only drill-in. Empty for a synthesized live-only row not yet scanned from disk.
+    let trail: [ActivityEntry]
 }
 
 /// At-a-glance counts for the dashboard summary strip, bucketed from the merged session
@@ -233,7 +236,8 @@ final class QueueStore: ObservableObject {
                 terminalHint: live.compactMap(\.terminalHint).first,
                 isLive: isLive(session.id, now: now) || !live.isEmpty || fresh,
                 activity: session.activity,
-                workingSince: turnStart[session.id]
+                workingSince: turnStart[session.id],
+                trail: session.trail
             ))
         }
 
@@ -252,7 +256,8 @@ final class QueueStore: ObservableObject {
                 terminalHint: live.compactMap(\.terminalHint).first,
                 isLive: true,
                 activity: nil,
-                workingSince: turnStart[sessionID]
+                workingSince: turnStart[sessionID],
+                trail: []
             ))
         }
 

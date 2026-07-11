@@ -60,7 +60,9 @@ AgentBar already merges an on-disk transcript scan (`SessionScanner` → `Claude
 with live hook events into `QueueStore.sessionRows`, one row per project location with a
 status. The dashboard is an **evolution of that feed**, not a new subsystem.
 
-### Slice 1 — current activity + summary (this change)
+> **Status:** Slices 1–3 shipped; Slice 4 remains.
+
+### Slice 1 — current activity + summary ✅
 
 - **Current-activity extraction.** The scanner reads each session's `.jsonl`; extract the
   most recent action — the last `tool_use` block, rendered compactly ("Editing
@@ -74,18 +76,19 @@ status. The dashboard is an **evolution of that feed**, not a new subsystem.
   `⋯ <what it's doing>` under the title, so the feed reads like a live agent dashboard
   rather than only an attention queue.
 
-### Slice 2 — live working timers
+### Slice 2 — live working timers ✅
 
-- Show turn-elapsed on actively-working sessions (mirror the existing `WaitingLabel`
-  pattern, keyed off the `working` hook's start time already tracked in `turnStart`).
+- Turn-elapsed on actively-working sessions, via `SessionRow.workingSince` (the `working`
+  hook's start time from `turnStart`) rendered by `ElapsedLabel` — the generalized
+  `WaitingLabel` that shows both "waiting Xs" and "working Xs".
 
-### Slice 3 — per-session drill-in
+### Slice 3 — per-session drill-in ✅
 
-- Click a session to expand a read-only recent-activity trail (the last N tool calls from
-  the transcript) — the closest read-only analog to Paseo's live stream, without attaching
-  to the process.
+- A `trail` (`[ActivityEntry]`) parsed per session — the last `trailCap` actions with
+  timestamps — expandable per row via a `trail`/`hide` keycap. The closest read-only analog
+  to Paseo's live stream, without attaching to the process.
 
-### Slice 4 — grouping / filtering
+### Slice 4 — grouping / filtering (next)
 
 - Optional grouping of the roster by state (Needs you / Working / Idle) and a filter to
   hide quiet historical sessions, for machines running many agents at once.

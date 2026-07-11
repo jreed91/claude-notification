@@ -30,6 +30,10 @@ struct QueueView: View {
     /// When true the feed area shows the recent-activity log instead of the live sessions.
     @State private var showHistory = false
 
+    /// Session ids whose read-only activity trail is expanded in the feed. Toggled per row;
+    /// nothing here drives a session — it only reveals more of what already happened.
+    @State private var expandedSessions: Set<String> = []
+
     private let minHeight = 260.0, maxHeight = 820.0
 
     /// One shared formatter for today's session timestamps (HH:mm:ss).
@@ -352,6 +356,11 @@ struct QueueView: View {
             }
 
             actions(for: row, attention: attention)
+
+            // The expanded activity trail, when this session is toggled open.
+            if expandedSessions.contains(row.id), !row.trail.isEmpty {
+                trailView(row.trail)
+            }
         }
         .padding(.vertical, 8)
     }
@@ -396,9 +405,51 @@ struct QueueView: View {
                     queue.toggleMute(row.cwd)
                 }
             }
+            if !row.trail.isEmpty {
+                let open = expandedSessions.contains(row.id)
+                KeycapButton(key: open ? "⌄" : "›", label: open ? "hide" : "trail", style: .focus) {
+                    toggleTrail(row.id)
+                }
+            }
             Spacer(minLength: 0)
         }
         .padding(.top, 2)
+    }
+
+    /// Expands or collapses a session's read-only activity trail in the feed.
+    private func toggleTrail(_ sessionID: String) {
+        if expandedSessions.contains(sessionID) {
+            expandedSessions.remove(sessionID)
+        } else {
+            expandedSessions.insert(sessionID)
+        }
+    }
+
+    /// The expanded read-only activity trail: the session's recent actions, newest-first, each
+    /// with its timestamp. Parsed from the transcript — the closest read-only analog to
+    /// attaching to a running agent, without any control channel.
+    @ViewBuilder
+    private func trailView(_ trail: [ActivityEntry]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Array(trail.reversed().enumerated()), id: \.offset) { _, entry in
+                HStack(alignment: .top, spacing: 6) {
+                    Text(entry.at.map { Self.stamp.string(from: $0) } ?? "··:··:··")
+                        .font(feedFont(9.5))
+                        .foregroundStyle(Color.feedDim)
+                    Text(entry.label)
+                        .font(feedFont(10))
+                        .foregroundStyle(Color.feedSub)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(.leading, 12)
+        .padding(.top, 3)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Color.feedGreen.opacity(0.18)).frame(width: 1)
+        }
     }
 
     /// Clears every live attention row for a session. There is no reply channel back into a

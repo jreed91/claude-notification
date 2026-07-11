@@ -1,5 +1,13 @@
 import Foundation
 
+/// One step in a session's recent-activity trail: a single action the agent took (a tool
+/// call rendered as a verb phrase, or a snippet of prose) with the timestamp of the message
+/// it came from. Read-only, parsed from the transcript; the drill-in shows the last handful.
+struct ActivityEntry: Sendable, Hashable {
+    let at: Date?
+    let label: String
+}
+
 /// A Claude Code session discovered on disk, independent of whether AgentBar ever saw a
 /// hook from it. Claude Code writes a full transcript of every session to
 /// `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl` (or under `$CLAUDE_CONFIG_DIR`),
@@ -25,6 +33,9 @@ struct ClaudeSession: Identifiable, Sendable, Hashable {
     /// its last prose. Read-only, derived from the transcript; nil when nothing usable was
     /// found. Surfaced on quiet/working sessions so the roster reads like a live dashboard.
     let activity: String?
+    /// The most recent actions in the session, oldest-first and capped, for the drill-in's
+    /// read-only activity trail. `activity` is just this trail's last label.
+    let trail: [ActivityEntry]
     /// The transcript file, kept so the row can reveal it in Finder.
     let fileURL: URL
 }
@@ -39,6 +50,10 @@ actor SessionScanner {
     /// accumulate thousands of historical transcripts; the roster only needs the recent
     /// ones, and this bounds both the parse cost and the popover's list length.
     private let maxSessions = 200
+
+    /// How many recent actions the drill-in trail keeps per session. Small so the popover
+    /// stays compact and the cached `ClaudeSession` stays light.
+    private static let trailCap = 8
 
     private struct CacheEntry {
         let modified: Date
@@ -116,7 +131,7 @@ actor SessionScanner {
         var cwd: String?
         var lastTimestamp: Date?
         var messageCount = 0
-        var lastActivity: String?
+        var trail: [ActivityEntry] = []
 
         for line in contents.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
@@ -132,9 +147,8 @@ actor SessionScanner {
                 cwd = entryCwd
             }
 
-            if let stamp = (entry["timestamp"] as? String).flatMap(parseTimestamp) {
-                if lastTimestamp == nil || stamp > lastTimestamp! { lastTimestamp = stamp }
-            }
+            let stamp = (entry["timestamp"] as? String).flatMap(parseTimestamp)
+            if let stamp, lastTimestamp == nil || stamp > lastTimestamp! { lastTimestamp = stamp }
 
             if type == "user" || type == "assistant" {
                 messageCount += 1
@@ -142,11 +156,14 @@ actor SessionScanner {
                    let text = userText(from: entry["message"]) {
                     firstUserText = text
                 }
-                // Track the newest usable action so the row can show what the agent is
-                // doing. Entries are chronological, so the last non-nil label wins; a
-                // trailing entry we can't summarize leaves the previous one intact.
-                if type == "assistant", let label = activityLabel(from: entry["message"]) {
-                    lastActivity = label
+                // Append each action this assistant message took to the trail so the drill-in
+                // can show a recent history. Entries are chronological; a rolling window keeps
+                // only the last `trailCap` so the array never grows with the transcript.
+                if type == "assistant" {
+                    for label in activityLabels(from: entry["message"]) {
+                        trail.append(ActivityEntry(at: stamp, label: label))
+                    }
+                    if trail.count > trailCap { trail.removeFirst(trail.count - trailCap) }
                 }
             }
         }
@@ -162,7 +179,8 @@ actor SessionScanner {
             title: title,
             lastActivity: lastTimestamp ?? modified,
             messageCount: messageCount,
-            activity: lastActivity,
+            activity: trail.last?.label,
+            trail: trail,
             fileURL: url
         )
     }
@@ -190,29 +208,26 @@ actor SessionScanner {
         return text
     }
 
-    /// A compact label for the most recent action in an assistant message: the last tool it
-    /// invoked (rendered as a friendly verb phrase) or a short snippet of its text when the
-    /// message is plain prose. Returns nil when there is nothing usable to show.
-    private static func activityLabel(from message: Any?) -> String? {
-        guard let message = message as? [String: Any] else { return nil }
+    /// The ordered actions in an assistant message: one verb phrase per tool call, or a single
+    /// prose snippet when the message is plain text. Empty when there is nothing usable to
+    /// show. The row's single `activity` label is just the last element across the transcript.
+    private static func activityLabels(from message: Any?) -> [String] {
+        guard let message = message as? [String: Any] else { return [] }
         if let blocks = message["content"] as? [[String: Any]] {
-            // The last tool_use block in the message is the most recent action.
-            for block in blocks.reversed() where (block["type"] as? String) == "tool_use" {
-                if let label = toolActivity(name: block["name"] as? String,
-                                            input: block["input"] as? [String: Any]) {
-                    return label
-                }
-            }
+            let tools = blocks
+                .filter { ($0["type"] as? String) == "tool_use" }
+                .compactMap { toolActivity(name: $0["name"] as? String, input: $0["input"] as? [String: Any]) }
+            if !tools.isEmpty { return tools }
             // No tool call — fall back to the message's own text.
             let text = blocks
                 .filter { ($0["type"] as? String) == "text" }
                 .compactMap { $0["text"] as? String }
                 .joined(separator: " ")
-            return snippet(text)
+            return snippet(text).map { [$0] } ?? []
         } else if let string = message["content"] as? String {
-            return snippet(string)
+            return snippet(string).map { [$0] } ?? []
         }
-        return nil
+        return []
     }
 
     /// Renders a Claude Code tool call as a short verb phrase for the activity line. Pulls the
