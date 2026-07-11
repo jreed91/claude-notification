@@ -60,7 +60,7 @@ AgentBar already merges an on-disk transcript scan (`SessionScanner` → `Claude
 with live hook events into `QueueStore.sessionRows`, one row per project location with a
 status. The dashboard is an **evolution of that feed**, not a new subsystem.
 
-> **Status:** Slices 1–3 shipped; Slice 4 remains.
+> **Status:** Slices 1–4 shipped — the read-only dashboard is complete.
 
 ### Slice 1 — current activity + summary ✅
 
@@ -88,10 +88,11 @@ status. The dashboard is an **evolution of that feed**, not a new subsystem.
   timestamps — expandable per row via a `trail`/`hide` keycap. The closest read-only analog
   to Paseo's live stream, without attaching to the process.
 
-### Slice 4 — grouping / filtering (next)
+### Slice 4 — grouping / filtering ✅
 
-- Optional grouping of the roster by state (Needs you / Working / Idle) and a filter to
-  hide quiet historical sessions, for machines running many agents at once.
+- The roster is grouped by state under `● NEEDS YOU` / `⚙ WORKING` / `○ IDLE` headers
+  (`groupedRows`), and a title-bar toggle (`liveSessionsOnly`) hides quiet historical
+  sessions, for machines running many agents at once.
 
 ## Non-goals (explicit)
 
