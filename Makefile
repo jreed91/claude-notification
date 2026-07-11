@@ -14,12 +14,39 @@ DIST      := dist
 APP_BUNDLE := $(DIST)/$(APP_NAME).app
 ZIP        := $(DIST)/$(APP_NAME)-$(VERSION).zip
 
-.PHONY: all build bundle sign adhoc zip notarize install clean icon
+.PHONY: all build test bundle sign adhoc zip notarize install clean icon doctor
 
 all: bundle
 
 build:
 	swift build -c release --package-path app
+
+# Run the Swift unit tests (payload parsers, duration formatting).
+test:
+	swift test --package-path app
+
+# Verify both halves are wired up: the app installed & responding, and the plugin
+# hook present and executable. The two-part install (cask + plugin) is the most common
+# source of "notifications aren't showing", so this checks each part end to end.
+doctor:
+	@echo "AgentBar doctor"
+	@echo "==============="
+	@if [ -d "/Applications/$(APP_NAME).app" ]; then \
+		echo "ok   app installed: /Applications/$(APP_NAME).app"; \
+	else \
+		echo "warn app not in /Applications — install the cask or run 'make install'"; \
+	fi
+	@if [ -x "plugin/bin/agentbar-hook" ]; then \
+		echo "ok   plugin hook present and executable"; \
+	else \
+		echo "FAIL plugin/bin/agentbar-hook missing or not executable"; \
+	fi
+	@command -v curl >/dev/null 2>&1 \
+		&& echo "ok   curl available" \
+		|| echo "FAIL curl not found — the hook needs it"
+	@echo "---"
+	@echo "Live pipeline check (launches AgentBar if needed):"
+	@plugin/bin/agentbar-hook --selftest || true
 
 # Regenerate app/Support/AppIcon.icns from the pure-Python design source.
 # Only needed when the icon design changes; the .icns is committed.

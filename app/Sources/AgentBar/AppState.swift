@@ -37,7 +37,13 @@ final class AppState: ObservableObject {
             "notifySubagent": true,
             "notifySessionEnd": true,
             "notifyErrors": true,
-            "playSound": true
+            "playSound": true,
+            "distinctSounds": false,
+            "dndEnabled": false,
+            "dndStartHour": 22,
+            "dndEndHour": 8,
+            "debugLogging": false,
+            "infoExpirySeconds": 25.0
         ])
     }
 }

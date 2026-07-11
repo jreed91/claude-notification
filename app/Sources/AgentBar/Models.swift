@@ -199,6 +199,32 @@ struct HookPayload {
     }
 }
 
+/// A single entry in the recent-activity log — a lightweight, immutable snapshot of one
+/// event as it was surfaced, so the popover can show "what happened while I was away"
+/// without re-reading transcripts. Kept small and `Sendable`: no references to live items.
+struct HistoryEntry: Identifiable, Hashable {
+    let id = UUID()
+    let at: Date
+    let project: String
+    let status: FeedStatus
+    let summary: String
+}
+
+/// Formats a turn/wait duration compactly: `4s`, `47s`, `2m 13s`, `1h 04m`. Used for the
+/// "waiting …" label on attention rows and the "finished in …" note on completed turns.
+enum DurationFormat {
+    static func short(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        if total < 60 { return "\(total)s" }
+        let minutes = total / 60
+        let secs = total % 60
+        if minutes < 60 { return secs == 0 ? "\(minutes)m" : "\(minutes)m \(secs)s" }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return String(format: "%dh %02dm", hours, mins)
+    }
+}
+
 /// The category behind an informational (`.info`) row. Drives the feed's status tag and
 /// mascot mood: idle/waiting reads as "working", finished/ended reads as "done", and a
 /// failed turn reads as "error".

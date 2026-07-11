@@ -27,6 +27,9 @@ struct QueueView: View {
     /// when the popover shrinks. Captured on open, reset when it closes.
     @State private var anchorTop: CGFloat?
 
+    /// When true the feed area shows the recent-activity log instead of the live sessions.
+    @State private var showHistory = false
+
     private let minHeight = 260.0, maxHeight = 820.0
 
     /// One shared formatter for today's session timestamps (HH:mm:ss).
@@ -51,7 +54,9 @@ struct QueueView: View {
             // dragging the popover taller enlarges the scrollable area (and grows downward,
             // since the popover is anchored under the icon at the top).
             Group {
-                if queue.sessionRows.isEmpty {
+                if showHistory {
+                    HistoryView(entries: queue.history, onClear: { queue.clearHistory() })
+                } else if queue.sessionRows.isEmpty {
                     emptyState
                 } else {
                     feed
@@ -132,6 +137,7 @@ struct QueueView: View {
                 .lineLimit(1)
             Spacer(minLength: 8)
             LiveBadge()
+            historyToggle
             settingsGear
         }
         .padding(.horizontal, 11)
@@ -140,6 +146,19 @@ struct QueueView: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.feedGreen.opacity(0.22)).frame(height: 1)
         }
+    }
+
+    /// Toggles the feed between live sessions and the recent-activity log.
+    private var historyToggle: some View {
+        Button {
+            showHistory.toggle()
+        } label: {
+            Image(systemName: showHistory ? "dot.radiowaves.left.and.right" : "clock.arrow.circlepath")
+                .font(.system(size: 11))
+                .foregroundStyle(showHistory ? Color.feedGreen : Color.feedSub)
+        }
+        .buttonStyle(.plain)
+        .help(showHistory ? "Back to live sessions" : "Recent activity")
     }
 
     private var settingsGear: some View {
@@ -180,6 +199,23 @@ struct QueueView: View {
         .padding(.horizontal, 14)
         .padding(.top, 13)
         .padding(.bottom, 10)
+        .contentShape(Rectangle())
+        .onTapGesture { focusLatestAttention() }
+        .help("Focus the session that needs you")
+    }
+
+    /// Brings forward the terminal of the most recently raised attention item (question,
+    /// permission, or MCP input) — the "jump to what needs me" shortcut from the hero.
+    private func focusLatestAttention() {
+        let latest = queue.sessionRows
+            .compactMap { row -> (SessionRow, Date)? in
+                guard let item = row.liveItems.first(where: { $0.needsResponse }) else { return nil }
+                return (row, item.createdAt)
+            }
+            .max(by: { $0.1 < $1.1 })
+        if let (row, _) = latest {
+            TerminalFocus.focus(hint: row.terminalHint, cwd: row.cwd)
+        }
     }
 
     // MARK: - Feed
@@ -237,11 +273,8 @@ struct QueueView: View {
 
             // A live hook event waiting on you in this session, if any.
             if let attention {
-                Text("→ \(attention.summaryLine)")
-                    .font(feedFont(11, .medium))
-                    .foregroundStyle(attention.feedStatus.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                attentionLines(attention)
+                WaitingLabel(since: attention.createdAt, color: attention.feedStatus.color)
 
                 // Command box, for permissions that carry one.
                 if let command = commandText(attention) {
@@ -266,14 +299,45 @@ struct QueueView: View {
         .padding(.vertical, 8)
     }
 
-    /// Row actions. AgentBar is notify-only, so these focus the terminal or clear a live
-    /// prompt row — they never answer for you. Quiet sessions show only focus.
+    /// The "→ …" ask line(s) for an attention item. A multi-question `AskUserQuestion`
+    /// renders one line per question so nothing is hidden behind a "(+N more)" summary;
+    /// everything else shows its single summary line.
+    @ViewBuilder
+    private func attentionLines(_ item: PendingItem) -> some View {
+        if case .question(let questions) = item.kind, questions.count > 1 {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(questions) { question in
+                    Text("→ \(question.question)")
+                        .font(feedFont(11, .medium))
+                        .foregroundStyle(item.feedStatus.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } else {
+            Text("→ \(item.summaryLine)")
+                .font(feedFont(11, .medium))
+                .foregroundStyle(item.feedStatus.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Row actions. AgentBar is notify-only, so these focus the terminal, clear a live
+    /// prompt row, or mute the project — they never answer for you. Quiet sessions show
+    /// focus and mute.
     @ViewBuilder
     private func actions(for row: SessionRow, attention: PendingItem?) -> some View {
+        let muted = queue.isMuted(row.cwd)
         HStack(spacing: 10) {
             KeycapButton(key: "↵", label: "focus", style: .focus) { TerminalFocus.focus(hint: row.terminalHint, cwd: row.cwd) }
             if attention != nil {
                 KeycapButton(key: "d", label: "dismiss", style: .deny) { dismissLive(row) }
+            }
+            if !row.cwd.isEmpty {
+                KeycapButton(key: muted ? "○" : "m", label: muted ? "muted" : "mute", style: .deny) {
+                    queue.toggleMute(row.cwd)
+                }
             }
             Spacer(minLength: 0)
         }

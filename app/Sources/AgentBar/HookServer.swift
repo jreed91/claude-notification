@@ -14,6 +14,12 @@ final class HookServer {
 
     private let maxBodyBytes = 1 << 20 // 1 MiB
 
+    /// The app's marketing version, surfaced in `server.json` and `/v1/health` for
+    /// staleness diagnostics. Falls back to `0.0.0` for unbundled (e.g. `swift run`) builds.
+    static var appVersion: String {
+        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "0.0.0"
+    }
+
     init() {
         self.token = HookServer.generateToken()
     }
@@ -171,7 +177,11 @@ final class HookServer {
 
         switch (request.method, request.path) {
         case ("GET", "/v1/health"):
-            respond(connection, status: 200, body: "ok")
+            // Report pid + version so a hook (or `agentbar-hook --selftest`) can confirm it
+            // is talking to a live, current instance rather than a stale server.json.
+            let pid = ProcessInfo.processInfo.processIdentifier
+            let body = "{\"ok\":true,\"pid\":\(pid),\"version\":\"\(Self.appVersion)\"}"
+            respond(connection, status: 200, body: body, contentType: "application/json")
         case ("POST", "/v1/ask"):
             dispatch(.ask, body: request.body, hint: hint, connection: connection)
         case ("POST", "/v1/permission"):
@@ -259,8 +269,11 @@ final class HookServer {
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
-        // Exact shape the bash hook parses with sed: unquoted port, quoted token.
-        let json = "{\"port\":\(port),\"token\":\"\(token)\"}"
+        // The bash hook parses `port` (unquoted) and `token` (quoted) with sed; the extra
+        // `pid`/`version` keys are ignored by it but let a stale file be told apart from a
+        // live instance during `--selftest`.
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let json = "{\"port\":\(port),\"pid\":\(pid),\"version\":\"\(Self.appVersion)\",\"token\":\"\(token)\"}"
         fm.createFile(
             atPath: serverFile.path,
             contents: Data(json.utf8),
