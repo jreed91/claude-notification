@@ -214,6 +214,115 @@ struct DashedRule: View {
     }
 }
 
+// MARK: - Waiting label
+
+/// A live "waiting …" label that ticks up from a start time, shown on attention rows so you
+/// can see at a glance how long a prompt has been sitting unanswered. Driven by a
+/// `TimelineView` (not a repeating animation), so it recomputes on a light interval without
+/// leaking an animation transaction into the `MenuBarExtra(.window)` popover. Stays hidden
+/// for the first couple of seconds so fresh prompts don't flash a "waiting 0s".
+struct WaitingLabel: View {
+    let since: Date
+    let color: Color
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let elapsed = context.date.timeIntervalSince(since)
+            if elapsed >= 2 {
+                Text("waiting \(DurationFormat.short(elapsed))")
+                    .font(feedFont(10))
+                    .foregroundStyle(color.opacity(0.75))
+            }
+        }
+    }
+}
+
+// MARK: - History
+
+/// The recent-activity log view — a newest-first list of surfaced events with a timestamp,
+/// status tag, project and one-line summary. Answers "what happened while I was away"
+/// without digging through transcripts. Shown in place of the live feed when toggled.
+struct HistoryView: View {
+    let entries: [HistoryEntry]
+    let onClear: () -> Void
+
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    var body: some View {
+        if entries.isEmpty {
+            VStack(spacing: 8) {
+                Text("[ · · · ]")
+                    .font(feedFont(13, .bold))
+                    .foregroundStyle(Color.feedDim)
+                Text("NO ACTIVITY YET")
+                    .font(feedFont(13, .bold))
+                    .foregroundStyle(Color.feedHead)
+                Text("events show here as they happen")
+                    .font(feedFont(11))
+                    .foregroundStyle(Color.feedSub)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("RECENT ACTIVITY")
+                        .font(feedFont(10, .bold))
+                        .tracking(1)
+                        .foregroundStyle(Color.feedDim)
+                    Spacer(minLength: 0)
+                    Button(action: onClear) {
+                        Text("clear")
+                            .font(feedFont(10))
+                            .foregroundStyle(Color.feedSub)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                            if index > 0 { DashedRule() }
+                            row(entry)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 2)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ entry: HistoryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(Self.stamp.string(from: entry.at))
+                    .font(feedFont(10.5))
+                    .foregroundStyle(Color.feedDim)
+                StatusTag(status: entry.status)
+                Text("[\(entry.project)]")
+                    .font(feedFont(11, .semibold))
+                    .foregroundStyle(Color.feedHead)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            Text(entry.summary)
+                .font(feedFont(11))
+                .foregroundStyle(Color.feedText)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 7)
+    }
+}
+
 // MARK: - LIVE badge
 
 /// The blinking "LIVE" pill in the popover's title bar.

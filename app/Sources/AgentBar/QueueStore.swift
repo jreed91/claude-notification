@@ -54,6 +54,24 @@ final class QueueStore: ObservableObject {
     /// Set by `AppState` after construction. Weak because `AppState` owns both objects.
     weak var notificationManager: NotificationManager?
 
+    /// Per-session turn start time, recorded when a turn begins (`working`) so a finished
+    /// turn (`stop`) can report how long it took. Cleared when the turn ends or the session
+    /// goes away.
+    private var turnStart: [String: Date] = [:]
+
+    /// A bounded, newest-first log of recently surfaced events, for the popover's history
+    /// view — "what happened while I was away". Purely informational and capped at
+    /// `historyLimit`, so it never grows unbounded.
+    @Published private(set) var history: [HistoryEntry] = []
+    private let historyLimit = 60
+
+    /// Project working directories the user has muted. Their events still appear in the feed
+    /// and still badge the icon, but post no banner and play no sound. Mirrored to
+    /// UserDefaults so mutes persist across launches.
+    @Published private(set) var mutedProjects: Set<String> = Set(
+        (UserDefaults.standard.array(forKey: "mutedProjects") as? [String]) ?? []
+    )
+
     /// Number of items still awaiting a response (excludes informational rows).
     var pendingCount: Int {
         items.filter { $0.needsResponse }.count
@@ -268,11 +286,19 @@ final class QueueStore: ObservableObject {
     /// kinds auto-expire.
     func submit(event: HookEvent, payload: Data, terminal: TerminalHint? = nil) {
         let parsed = HookPayload(data: payload)
+        DebugLog.logEvent("→ \(event.rawValue)", raw: payload)
 
         // Every event from a session counts as "watching" it, until it ends or goes quiet.
         if !parsed.sessionID.isEmpty, event != .sessionEnd {
             sessionsLastSeen[parsed.sessionID] = Date()
             pruneSessions()
+        }
+
+        // A turn just started — remember when, so the matching `stop` can report duration.
+        // Recorded independently of the "Claude is thinking" toggle so timing works even
+        // when that banner is muted.
+        if event == .working, !parsed.sessionID.isEmpty {
+            turnStart[parsed.sessionID] = Date()
         }
 
         switch event {
@@ -302,6 +328,9 @@ final class QueueStore: ObservableObject {
         case .elicit:
             guard settingEnabled("notifyElicitations") else { return }
             let request = HookPayload.elicitation(from: parsed.raw)
+            if request.fields.isEmpty {
+                DebugLog.log("elicitation parsed to message-only (no schema fields recognized); raw payload above")
+            }
             enqueueAttention(PendingItem(
                 sessionID: parsed.sessionID,
                 cwd: parsed.cwd,
@@ -356,8 +385,13 @@ final class QueueStore: ObservableObject {
         case .stop:
             // The turn ended, so any prompt you were shown for this session is resolved.
             clearAttention(for: parsed.sessionID)
+            let elapsed = turnStart[parsed.sessionID].map { Date().timeIntervalSince($0) }
+            turnStart[parsed.sessionID] = nil
             guard settingEnabled("notifyTaskFinished") else { return }
-            let body = parsed.message ?? "Claude finished the current task."
+            var body = parsed.message ?? "Claude finished the current task."
+            if let elapsed, elapsed >= 1 {
+                body += " · finished in \(DurationFormat.short(elapsed))"
+            }
             enqueueInfo(PendingItem(
                 sessionID: parsed.sessionID,
                 cwd: parsed.cwd,
@@ -379,6 +413,7 @@ final class QueueStore: ObservableObject {
             // The session is gone: stop watching it and clear anything still pending.
             clearAttention(for: parsed.sessionID)
             sessionsLastSeen[parsed.sessionID] = nil
+            turnStart[parsed.sessionID] = nil
             guard settingEnabled("notifySessionEnd") else { return }
             let body = parsed.endReason.map { "Session ended (\($0))." } ?? "The Claude Code session ended."
             enqueueInfo(PendingItem(
@@ -408,7 +443,8 @@ final class QueueStore: ObservableObject {
     private func enqueueAttention(_ item: PendingItem) {
         clearStatusRows(for: item.sessionID)
         items.append(item)
-        notificationManager?.post(for: item)
+        recordHistory(item)
+        postBanner(item)
     }
 
     private func enqueueInfo(_ item: PendingItem) {
@@ -416,7 +452,8 @@ final class QueueStore: ObservableObject {
         // supersedes the "thinking" row from the same turn.
         clearStatusRows(for: item.sessionID)
         items.append(item)
-        notificationManager?.post(for: item)
+        recordHistory(item)
+        postBanner(item)
         scheduleExpiry(item)
     }
 
@@ -471,11 +508,21 @@ final class QueueStore: ObservableObject {
 
     // MARK: - Helpers
 
-    private func scheduleExpiry(_ item: PendingItem, after seconds: Double = 25) {
+    /// Informational rows auto-expire after the user-configured interval (default 25s).
+    private func scheduleExpiry(_ item: PendingItem) {
+        let seconds = infoExpirySeconds
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             self.dismiss(item)
         }
+    }
+
+    /// Seconds an informational row lingers before auto-dismissing. Read from
+    /// `infoExpirySeconds`, clamped to a sane range; falls back to 25 when unset.
+    private var infoExpirySeconds: Double {
+        let value = UserDefaults.standard.double(forKey: "infoExpirySeconds")
+        guard value > 0 else { return 25 }
+        return min(max(value, 5), 120)
     }
 
     /// UserDefaults toggles default to true when unset.
@@ -484,4 +531,70 @@ final class QueueStore: ObservableObject {
         if defaults.object(forKey: key) == nil { return true }
         return defaults.bool(forKey: key)
     }
+
+    // MARK: - Muting & Do Not Disturb
+
+    func isMuted(_ cwd: String) -> Bool { mutedProjects.contains(cwd) }
+
+    /// Toggles a project's mute state and persists it. Muted projects still enqueue rows and
+    /// badge the icon; only their banners and sounds are held back.
+    func toggleMute(_ cwd: String) {
+        guard !cwd.isEmpty else { return }
+        if mutedProjects.contains(cwd) {
+            mutedProjects.remove(cwd)
+        } else {
+            mutedProjects.insert(cwd)
+        }
+        UserDefaults.standard.set(Array(mutedProjects), forKey: "mutedProjects")
+    }
+
+    /// Posts a banner for an item unless it is suppressed (muted project or Do Not Disturb).
+    /// The row itself is already enqueued and badges regardless — only the interruptive
+    /// banner is gated here.
+    private func postBanner(_ item: PendingItem) {
+        guard !bannerSuppressed(for: item) else { return }
+        notificationManager?.post(for: item)
+    }
+
+    private func bannerSuppressed(for item: PendingItem) -> Bool {
+        if !item.cwd.isEmpty && mutedProjects.contains(item.cwd) { return true }
+        if inDoNotDisturb() { return true }
+        return false
+    }
+
+    /// True when `now` falls inside the user's Do Not Disturb window. The window is a pair of
+    /// hours [start, end); a start later than end wraps past midnight (e.g. 22 → 8 silences
+    /// 10pm through 8am). Disabled or an empty (start == end) window is never in DND.
+    func inDoNotDisturb(now: Date = Date()) -> Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "dndEnabled") else { return false }
+        let start = defaults.integer(forKey: "dndStartHour")
+        let end = defaults.integer(forKey: "dndEndHour")
+        if start == end { return false }
+        let hour = Calendar.current.component(.hour, from: now)
+        return start < end ? (hour >= start && hour < end)
+                           : (hour >= start || hour < end)
+    }
+
+    // MARK: - History
+
+    /// Appends a newest-first snapshot of a surfaced event to the activity log, trimming to
+    /// `historyLimit`. Working/thinking rows are transient and never recorded (they route
+    /// through `enqueueWorking`, which does not call this).
+    private func recordHistory(_ item: PendingItem) {
+        let project = item.cwd.isEmpty ? "—" : URL(fileURLWithPath: item.cwd).lastPathComponent
+        let entry = HistoryEntry(
+            at: item.createdAt,
+            project: project,
+            status: item.feedStatus,
+            summary: item.summaryLine
+        )
+        history.insert(entry, at: 0)
+        if history.count > historyLimit {
+            history.removeLast(history.count - historyLimit)
+        }
+    }
+
+    /// Clears the activity log (bound to a control in the history view).
+    func clearHistory() { history.removeAll() }
 }

@@ -15,6 +15,9 @@ jobs:
       - name: Build release binary
         run: swift build -c release --package-path app
 
+      - name: Run unit tests
+        run: swift test --package-path app
+
       - name: Bundle smoke test
         env:
           VERSION: 0.0.0-ci

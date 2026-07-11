@@ -3,6 +3,7 @@
 # agentbar-hook — bridge between Claude Code hooks and the AgentBar menu bar app.
 #
 # Usage: agentbar-hook <event>
+#        agentbar-hook --selftest
 #   events: working | ask | permission | elicit | resolved | notify | stop | subagent | sessionend | stopfailure
 #
 # AgentBar is notify-only: every event is fire-and-forget. This script reads the
@@ -13,6 +14,10 @@
 # Fail-open contract: if AgentBar is not installed, not running and cannot be
 # launched, times out, or errors in any way, this script exits 0 with no
 # output so the prompt falls back to the normal terminal experience.
+#
+# `--selftest` breaks the silent contract on purpose: it prints a human-readable
+# diagnosis of each moving part (curl, server.json, the live server) and exits
+# non-zero if anything is wrong, so "why aren't my notifications showing?" is answerable.
 
 set -u
 
@@ -24,9 +29,13 @@ BUNDLE_ID="com.jreed91.AgentBar"
 PORT=""
 TOKEN=""
 
+have_curl() {
+  command -v curl >/dev/null 2>&1
+}
+
 read_server_file() {
   [ -f "$SERVER_FILE" ] || return 1
-  # server.json is written by AgentBar as: {"port":12345,"token":"hex"}
+  # server.json is written by AgentBar as: {"port":12345,"pid":678,"version":"x","token":"hex"}
   PORT="$(sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$SERVER_FILE")"
   TOKEN="$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SERVER_FILE")"
   [ -n "$PORT" ] && [ -n "$TOKEN" ]
@@ -34,6 +43,7 @@ read_server_file() {
 
 server_alive() {
   [ -n "$PORT" ] || return 1
+  have_curl || return 1
   curl -sf -m 2 -H "Authorization: Bearer ${TOKEN}" \
     "http://127.0.0.1:${PORT}/v1/health" >/dev/null 2>&1
 }
@@ -42,11 +52,69 @@ launch_app() {
   open -g -b "$BUNDLE_ID" 2>/dev/null || open -g -a "AgentBar" 2>/dev/null
 }
 
+# --selftest: diagnose the pipeline and exit. Never reads stdin.
+if [ "$EVENT" = "--selftest" ] || [ "$EVENT" = "selftest" ]; then
+  status=0
+
+  if have_curl; then
+    echo "ok   curl found: $(command -v curl)"
+  else
+    echo "FAIL curl not found on PATH — the hook cannot reach AgentBar"
+    status=1
+  fi
+
+  if [ -f "$SERVER_FILE" ]; then
+    if read_server_file; then
+      echo "ok   server.json readable (port ${PORT})"
+    else
+      echo "FAIL server.json present but missing port/token: ${SERVER_FILE}"
+      status=1
+    fi
+  else
+    echo "warn server.json not found — AgentBar has not run yet (${SERVER_FILE})"
+  fi
+
+  if server_alive; then
+    version="$(curl -sf -m 2 -H "Authorization: Bearer ${TOKEN}" \
+      "http://127.0.0.1:${PORT}/v1/health" 2>/dev/null)"
+    echo "ok   server responding on 127.0.0.1:${PORT} — ${version}"
+  else
+    echo "warn server not responding; attempting to launch AgentBar…"
+    if launch_app; then
+      i=0
+      while [ "$i" -lt 25 ]; do
+        sleep 0.2
+        if read_server_file && server_alive; then break; fi
+        i=$((i + 1))
+      done
+      if server_alive; then
+        echo "ok   AgentBar launched and responding on 127.0.0.1:${PORT}"
+      else
+        echo "FAIL AgentBar did not come up — is the app installed in /Applications?"
+        status=1
+      fi
+    else
+      echo "FAIL could not launch AgentBar (bundle id ${BUNDLE_ID}) — install the Homebrew cask"
+      status=1
+    fi
+  fi
+
+  [ "$status" -eq 0 ] && echo "AgentBar hook: all good." || echo "AgentBar hook: problems found (see above)."
+  exit "$status"
+fi
+
+# Normal fire-and-forget path. Without curl there is nothing we can do — fail open.
+have_curl || exit 0
+
 # Consume the payload first so we never leave Claude Code blocked on a full pipe.
 PAYLOAD="$(cat)"
 
 read_server_file || true
 if ! server_alive; then
+  # A server.json that doesn't answer is stale (crash without clean shutdown, or a reused
+  # port). Drop it so the relaunched app republishes a fresh one rather than us trusting it.
+  [ -f "$SERVER_FILE" ] && rm -f "$SERVER_FILE" 2>/dev/null
+  PORT=""; TOKEN=""
   launch_app || exit 0
   # Wait up to ~5s for the app to boot and publish server.json.
   i=0

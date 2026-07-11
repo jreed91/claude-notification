@@ -13,9 +13,19 @@ struct SettingsView: View {
     @AppStorage("notifySessionEnd") private var notifySessionEnd = true
     @AppStorage("notifyErrors") private var notifyErrors = true
     @AppStorage("playSound") private var playSound = true
+    @AppStorage("distinctSounds") private var distinctSounds = false
+
+    @AppStorage("dndEnabled") private var dndEnabled = false
+    @AppStorage("dndStartHour") private var dndStartHour = 22
+    @AppStorage("dndEndHour") private var dndEndHour = 8
+
+    @AppStorage("infoExpirySeconds") private var infoExpirySeconds = 25.0
+    @AppStorage("debugLogging") private var debugLogging = false
 
     @State private var launchAtLogin = false
     @State private var launchError: String?
+
+    private let hours = Array(0...23)
 
     var body: some View {
         Form {
@@ -33,6 +43,41 @@ struct SettingsView: View {
 
             Section("Banners") {
                 Toggle("Play sound", isOn: $playSound)
+                Toggle("Distinct sound per event type", isOn: $distinctSounds)
+                    .disabled(!playSound)
+                    .help("Permission, question, done and error each get their own system sound.")
+                LabeledContent("Auto-dismiss info after") {
+                    HStack(spacing: 6) {
+                        Slider(value: $infoExpirySeconds, in: 5...120, step: 5)
+                            .frame(width: 140)
+                        Text("\(Int(infoExpirySeconds))s")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Section("Do Not Disturb") {
+                Toggle("Silence banners during a window", isOn: $dndEnabled)
+                    .help("Rows still badge the menu bar; only banners and sounds are held back.")
+                if dndEnabled {
+                    Picker("From", selection: $dndStartHour) {
+                        ForEach(hours, id: \.self) { Text(hourLabel($0)).tag($0) }
+                    }
+                    Picker("Until", selection: $dndEndHour) {
+                        ForEach(hours, id: \.self) { Text(hourLabel($0)).tag($0) }
+                    }
+                }
+            }
+
+            Section {
+                Toggle("Log raw hook payloads (debug)", isOn: $debugLogging)
+            } header: {
+                Text("Diagnostics")
+            } footer: {
+                Text("Writes events to ~/Library/Application Support/AgentBar/debug.log for troubleshooting payload parsing. Mute a project from its row in the popover.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("General") {
@@ -52,6 +97,13 @@ struct SettingsView: View {
         .onAppear {
             launchAtLogin = (SMAppService.mainApp.status == .enabled)
         }
+    }
+
+    /// A 12-hour clock label for an hour-of-day, e.g. `10 PM`, `8 AM`, `12 PM`.
+    private func hourLabel(_ hour: Int) -> String {
+        let period = hour < 12 ? "AM" : "PM"
+        let twelve = hour % 12 == 0 ? 12 : hour % 12
+        return "\(twelve) \(period)"
     }
 
     private func updateLaunchAtLogin(_ enabled: Bool) {

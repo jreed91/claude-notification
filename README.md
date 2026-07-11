@@ -87,6 +87,32 @@ beat after you respond in the terminal. You can also dismiss any item by hand. I
 rows auto-expire. Every event has a toggle in Settings, so chatty ones (subagent and
 session-end in particular) can be muted individually.
 
+### Banner actions, mute & Do Not Disturb
+
+Banners carry inline buttons — but AgentBar stays notify-only, so none of them answer a
+prompt for you:
+
+- **Dismiss** clears the row (and its banner).
+- **Snooze 10 min** hushes an attention item and re-posts it later if it is still waiting.
+- **Copy command** (on permission banners that carry a shell command) puts the command on
+  the clipboard so you can paste it in the terminal.
+
+For sessions that are noisy, click **mute** on the session's row in the popover — its events
+still show in the feed and still badge the icon, but post no banner and play no sound. A
+**Do Not Disturb** window in Settings does the same globally for a time range (e.g. 10 PM →
+8 AM). Settings also has **distinct sounds per event type** (so a permission sounds
+different from a finished task), a configurable **auto-dismiss** interval for informational
+rows, and a **debug logging** toggle that records raw hook payloads to
+`~/Library/Application Support/AgentBar/debug.log` for troubleshooting.
+
+### Attention timing & history
+
+Attention rows show a live **waiting …** timer so you can see how long a prompt has been
+sitting, and a finished turn reports **how long it took** ("finished in 2m 13s"). The clock
+icon in the title bar flips the feed to a **recent-activity log** — a newest-first record of
+what was surfaced while you were away, without digging through transcripts. Clicking the hero
+status jumps you straight to the terminal of whatever most recently needs you.
+
 ## The session list
 
 The popover lists your Claude Code sessions, **most recent first, one row per project**.
@@ -127,6 +153,12 @@ make bundle install
 
 Other useful targets: `make build`, `make bundle`, `make adhoc`, `make clean`. See the
 `Makefile` for signing, zipping, and notarizing targets.
+
+Run the unit tests (the hook-payload parsers and duration formatting) with `make test` (or
+`swift test --package-path app`); they run in CI on every pull request. To diagnose a broken
+install end to end, `make doctor` checks that both halves are wired up, and
+`plugin/bin/agentbar-hook --selftest` probes the CLI → server pipeline and prints what it
+finds.
 
 Repository layout:
 
