@@ -6,6 +6,12 @@ has gone idle waiting for input — AgentBar notifies you and brings your termin
 the front so you can answer there. It is a **notification tool, not an input tool**: it
 never blocks your session and never sits between you and Claude.
 
+<p align="center">
+  <img src="docs/images/dashboard.png" alt="AgentBar popover showing a multi-agent dashboard: a permission and a question waiting, one session working, two idle" width="380">
+</p>
+
+<p align="center"><sub><i>The AgentBar popover — a live, read-only overview of every Claude Code session, with what needs you floated to the top. (UI preview rendered from the app's design, not a photo of a running app.)</i></sub></p>
+
 ## How it works
 
 ```
@@ -67,6 +73,12 @@ The plugin's hooks activate automatically on install — no `settings.json` edit
 
 Every event is a notification — AgentBar never intercepts or answers a prompt for you.
 
+<p align="center">
+  <img src="docs/images/permission.png" alt="A session row waiting on a permission request, showing the tool, the shell command in an amber box, a live waiting timer, an expanded activity trail, and focus / dismiss / mute keycaps" width="360">
+</p>
+
+<p align="center"><sub><i>A permission request surfaced for context — the tool, its command, and how long it's been waiting. The keycaps <b>focus</b> your terminal or <b>dismiss</b> the row; you still allow or deny in the terminal.</i></sub></p>
+
 | Event | What you see | What you do |
 |---|---|---|
 | **Thinking** (`UserPromptSubmit`) | A live "working" status while Claude is on a turn (no banner) | Nothing — it clears itself when the turn ends |
@@ -112,6 +124,12 @@ sitting, and a finished turn reports **how long it took** ("finished in 2m 13s")
 icon in the title bar flips the feed to a **recent-activity log** — a newest-first record of
 what was surfaced while you were away, without digging through transcripts. Clicking the hero
 status jumps you straight to the terminal of whatever most recently needs you.
+
+<p align="center">
+  <img src="docs/images/activity.png" alt="The recent-activity log: a newest-first list of surfaced events, each with a timestamp, status tag, project, and one-line summary" width="360">
+</p>
+
+<p align="center"><sub><i>The recent-activity log — everything AgentBar surfaced while you were away, newest first.</i></sub></p>
 
 ## The session list
 
