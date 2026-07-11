@@ -25,6 +25,10 @@ struct SessionRow: Identifiable {
     /// or prose). Shown on rows that aren't currently waiting on you, so the roster reads as
     /// a live dashboard. Nil for a synthesized live-only row not yet scanned from disk.
     let activity: String?
+    /// When the session's current turn began (the `working` hook's timestamp), for the live
+    /// "working …" elapsed timer. Nil when no turn is in flight, or when AgentBar started
+    /// mid-turn and never caught the `working` hook.
+    let workingSince: Date?
 }
 
 /// At-a-glance counts for the dashboard summary strip, bucketed from the merged session
@@ -228,7 +232,8 @@ final class QueueStore: ObservableObject {
                 liveItems: live,
                 terminalHint: live.compactMap(\.terminalHint).first,
                 isLive: isLive(session.id, now: now) || !live.isEmpty || fresh,
-                activity: session.activity
+                activity: session.activity,
+                workingSince: turnStart[session.id]
             ))
         }
 
@@ -246,7 +251,8 @@ final class QueueStore: ObservableObject {
                 liveItems: live,
                 terminalHint: live.compactMap(\.terminalHint).first,
                 isLive: true,
-                activity: nil
+                activity: nil,
+                workingSince: turnStart[sessionID]
             ))
         }
 

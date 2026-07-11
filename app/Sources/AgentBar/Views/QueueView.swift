@@ -310,22 +310,28 @@ struct QueueView: View {
             }
             .buttonStyle(.plain)
 
-            // What the agent is doing, read from the transcript — shown only when nothing is
-            // waiting on you (an attention line below would otherwise say it better). Tinted
-            // blue while working, dim when the session is quiet.
-            if attention == nil, let activity = row.activity {
-                Text("⋯ \(activity)")
-                    .font(feedFont(10.5))
-                    .foregroundStyle(row.status == .working ? Color.stWorking : Color.feedDim)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            // When nothing is waiting on you, show what the agent is doing (from the
+            // transcript) and, for a turn in flight, how long it has been running — the
+            // read-only "live agent" view. Activity is tinted blue while working, dim
+            // when the session is quiet.
+            if attention == nil {
+                if let activity = row.activity {
+                    Text("⋯ \(activity)")
+                        .font(feedFont(10.5))
+                        .foregroundStyle(row.status == .working ? Color.stWorking : Color.feedDim)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if row.status == .working, let since = row.workingSince {
+                    ElapsedLabel(since: since, color: .stWorking, verb: "working")
+                }
             }
 
             // A live hook event waiting on you in this session, if any.
             if let attention {
                 attentionLines(attention)
-                WaitingLabel(since: attention.createdAt, color: attention.feedStatus.color)
+                ElapsedLabel(since: attention.createdAt, color: attention.feedStatus.color)
 
                 // Command box, for permissions that carry one.
                 if let command = commandText(attention) {
