@@ -765,26 +765,22 @@ struct QueueView: View {
     }
 
     /// The nominal context window (tokens) for a model — the denominator of the usage percent.
-    /// Claude's models are 200k-token windows, except Sonnet 4 and newer, which can run a
-    /// 1M-token window under a beta flag. The transcript doesn't record whether that beta was
-    /// active, so the large window is assumed only once usage has actually crossed the 200k
-    /// tier (a 200k model can never exceed its window, so anything above 200k must be on the
-    /// large one); below that, 200k is the right base for the non-beta default.
+    /// Most of Claude's models are 200k-token windows; a few (e.g. Opus 4.8) ship a 1M-token
+    /// window as standard, and Sonnet 4+ can run 1M under a beta flag. The transcript records
+    /// neither the window nor the beta, so: models known to be 1M measure against 1M always;
+    /// everything else assumes the 200k standard but promotes to 1M once usage crosses it — a
+    /// 200k model can't exceed its window, so anything above 200k (a default-1M model we don't
+    /// recognize, or a Sonnet-4+ session on the 1M beta) must be on the larger one.
     private func contextWindow(for model: String?, usedTokens: Int) -> Int {
         let standard = 200_000, large = 1_000_000
         let name = (model ?? "").lowercased()
-        let supportsLargeWindow = name.contains("sonnet") && !isPre4Sonnet(name)
-        if supportsLargeWindow, usedTokens > standard { return large }
-        return standard
+        if isMillionTokenModel(name) { return large }
+        return usedTokens > standard ? large : standard
     }
 
-    /// Sonnet generations that predate the 1M-token context (Sonnet 3 / 3.5 / 3.7). Sonnet 4
-    /// and newer can run the large window.
-    private func isPre4Sonnet(_ name: String) -> Bool {
-        name.contains("sonnet-3")
-            || name.contains("claude-3-sonnet")
-            || name.contains("claude-3-5-sonnet")
-            || name.contains("claude-3-7-sonnet")
+    /// Models whose standard context window is 1M tokens (not a beta). Opus 4.8 ships 1M.
+    private func isMillionTokenModel(_ name: String) -> Bool {
+        name.contains("opus-4-8")
     }
 
     /// Context usage as a whole-number percent of the model's window, clamped to 0…100.
