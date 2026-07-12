@@ -778,9 +778,10 @@ struct QueueView: View {
         return usedTokens > standard ? large : standard
     }
 
-    /// Models whose standard context window is 1M tokens (not a beta). Opus 4.8 ships 1M.
+    /// Models whose standard context window is 1M tokens (not a beta). Opus 4.8 and Sonnet 5
+    /// ship 1M.
     private func isMillionTokenModel(_ name: String) -> Bool {
-        name.contains("opus-4-8")
+        name.contains("opus-4-8") || name.contains("sonnet-5")
     }
 
     /// Context usage as a whole-number percent of the model's window, clamped to 0…100.
