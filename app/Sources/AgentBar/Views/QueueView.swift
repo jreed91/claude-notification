@@ -104,12 +104,24 @@ struct QueueView: View {
         .overlay(alignment: .bottom) { bottomResizeHandle }
         .background(WindowReader(trigger: popoverHeight) { window in
             pinTop(of: window)
+            makeKeyIfNeeded(window)
         })
         .onAppear { installKeyMonitor() }
         .onDisappear {
             anchorTop = nil
             removeKeyMonitor()
         }
+    }
+
+    /// Makes the popover window the key window while it's open. AgentBar is a menu-bar
+    /// accessory (`LSUIElement`), so the app never activates on its own and the popover panel
+    /// isn't key by default — which means `keyDown` events route to whatever app *is* active,
+    /// not here, and the local key monitor never sees them (mouse clicks still hit-test fine,
+    /// which is why buttons work but the keyboard doesn't). Forcing the panel key lets the
+    /// keyboard navigation actually receive events. Guarded so we only claim key once.
+    private func makeKeyIfNeeded(_ window: NSWindow) {
+        guard window.isVisible, !window.isKeyWindow else { return }
+        window.makeKey()
     }
 
     /// Keeps the popover's top edge under the menu-bar icon as its height changes: capture
