@@ -309,17 +309,6 @@ On every push to `main`, `release.yml` runs [semantic-release](https://semantic-
 No `settings.json` or tag pushing needed — merge a `fix:`/`feat:` PR and the release ships
 itself.
 
-Required repository secrets:
-
-| Secret | Purpose |
-|---|---|
-| `MACOS_CERT_P12` | Base64-encoded Developer ID Application certificate (`.p12`) |
-| `MACOS_CERT_PASSWORD` | Password for the `.p12` |
-| `MACOS_SIGNING_IDENTITY` | Codesign identity, e.g. `Developer ID Application: Name (TEAMID)` |
-| `APPLE_ID` | Apple ID for notarization |
-| `APPLE_TEAM_ID` | Apple Developer Team ID |
-| `APPLE_APP_PASSWORD` | App-specific password for notarization |
-
 ## Design
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for the full design,
