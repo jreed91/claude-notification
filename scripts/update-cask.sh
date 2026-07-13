@@ -40,5 +40,12 @@ sed -i.bak -E \
   "$CASK"
 rm -f "${CASK}.bak"
 
+# sed exits 0 whether or not anything matched; assert the new values actually
+# landed so a cask reformat can never ship a release with a stale version/sha.
+if ! grep -Fq "version \"${VERSION}\"" "$CASK" || ! grep -Fq "sha256 \"${SHA256}\"" "$CASK"; then
+  echo "error: failed to stamp version/sha256 into ${CASK} — check the cask format" >&2
+  exit 1
+fi
+
 echo "==> Updated ${CASK}:"
 grep -E '^[[:space:]]*(version|sha256) ' "$CASK"

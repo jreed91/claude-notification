@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 import Security
@@ -144,8 +145,11 @@ final class HookServer {
             headers[key] = value
         }
 
+        // Reject absurd lengths before doing index math: a negative value would
+        // produce an inverted Data range below, which traps — and this parse runs
+        // before the bearer-token check, so it must never crash on hostile input.
         let contentLength = Int(headers["content-length"] ?? "0") ?? 0
-        if contentLength > maxBodyBytes { return .tooLarge }
+        if contentLength < 0 || contentLength > maxBodyBytes { return .tooLarge }
 
         let bodyStart = headerEnd.upperBound
         let available = buffer.distance(from: bodyStart, to: buffer.endIndex)
@@ -159,7 +163,7 @@ final class HookServer {
     // MARK: - Routing
 
     private func route(_ request: HTTPRequest, on connection: NWConnection) {
-        guard request.headers["authorization"] == "Bearer \(token)" else {
+        guard authorized(request.headers["authorization"]) else {
             respond(connection, status: 401, body: "unauthorized")
             return
         }
@@ -208,6 +212,16 @@ final class HookServer {
         default:
             respond(connection, status: 404, body: "not found")
         }
+    }
+
+    /// Timing-safe bearer check: any local process can reach the loopback port, and a
+    /// plain `==` leaks how many leading token bytes matched. Comparing SHA-256 digests
+    /// makes the comparison's timing independent of the attacker-controlled value.
+    private func authorized(_ authorizationHeader: String?) -> Bool {
+        guard let provided = authorizationHeader else { return false }
+        let expected = SHA256.hash(data: Data("Bearer \(token)".utf8))
+        let actual = SHA256.hash(data: Data(provided.utf8))
+        return expected == actual
     }
 
     private func dispatch(_ event: HookEvent, body: Data, hint: TerminalHint, source: AgentSource, connection: NWConnection) {

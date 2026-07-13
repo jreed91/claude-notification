@@ -91,7 +91,10 @@ actor CopilotSessionScanner {
     /// a `ClaudeSession`. The session id is the directory name; the cwd is read from
     /// `workspace.yaml` or an event that carries one, falling back to empty.
     private static func parse(eventsURL: URL, modified: Date) -> ClaudeSession? {
-        guard let contents = try? String(contentsOf: eventsURL, encoding: .utf8) else { return nil }
+        // Decode lossily: one invalid byte in events.jsonl must degrade the row, not drop
+        // the whole session (see the matching read in SessionScanner.parse).
+        guard let data = try? Data(contentsOf: eventsURL) else { return nil }
+        let contents = String(decoding: data, as: UTF8.self)
         let sessionDir = eventsURL.deletingLastPathComponent()
         let sessionID = sessionDir.lastPathComponent
         let cwd = cwdFromWorkspace(sessionDir.appendingPathComponent("workspace.yaml"))

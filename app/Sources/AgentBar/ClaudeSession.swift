@@ -157,7 +157,11 @@ actor SessionScanner {
     /// of well-known keys and tolerate everything else, so format drift degrades to a
     /// thinner row rather than a dropped session.
     private static func parse(url: URL, modified: Date) -> ClaudeSession? {
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        // Decode lossily: a strict .utf8 read returns nil for a file containing a single
+        // invalid byte (e.g. binary tool output logged verbatim), which would drop the whole
+        // session instead of degrading it — replacement characters are the lesser evil.
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let contents = String(decoding: data, as: UTF8.self)
         return parseTranscript(
             contents: contents,
             sessionID: url.deletingPathExtension().lastPathComponent,

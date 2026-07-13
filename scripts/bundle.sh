@@ -74,21 +74,26 @@ fi
 # Classic bundle signature.
 printf 'APPL????' > "${CONTENTS}/PkgInfo"
 
-# Stamp CFBundleShortVersionString. PlistBuddy is the correct tool on macOS;
-# fall back to an in-place sed rewrite if it is unavailable.
+# Stamp CFBundleShortVersionString and CFBundleVersion. Both must track the
+# release: LaunchServices and notarization records key off CFBundleVersion, so
+# leaving it at the template's "1" makes every release indistinguishable.
+# PlistBuddy is the correct tool on macOS; fall back to an in-place awk rewrite
+# if it is unavailable.
 PLIST_BUDDY="/usr/libexec/PlistBuddy"
 if [ -x "$PLIST_BUDDY" ]; then
-  if "$PLIST_BUDDY" -c "Set :CFBundleShortVersionString ${VERSION}" "${CONTENTS}/Info.plist" 2>/dev/null; then
-    :
-  else
-    "$PLIST_BUDDY" -c "Add :CFBundleShortVersionString string ${VERSION}" "${CONTENTS}/Info.plist"
-  fi
+  for key in CFBundleShortVersionString CFBundleVersion; do
+    if "$PLIST_BUDDY" -c "Set :${key} ${VERSION}" "${CONTENTS}/Info.plist" 2>/dev/null; then
+      :
+    else
+      "$PLIST_BUDDY" -c "Add :${key} string ${VERSION}" "${CONTENTS}/Info.plist"
+    fi
+  done
 else
-  echo "warning: ${PLIST_BUDDY} not found; using sed fallback to stamp version" >&2
-  # Replace the string value on the line following the CFBundleShortVersionString key.
+  echo "warning: ${PLIST_BUDDY} not found; using awk fallback to stamp version" >&2
+  # Replace the string value on the line following each version key.
   tmp="$(mktemp)"
   awk -v ver="$VERSION" '
-    prev ~ /CFBundleShortVersionString/ {
+    prev ~ /CFBundleShortVersionString|CFBundleVersion/ {
       sub(/<string>[^<]*<\/string>/, "<string>" ver "</string>")
     }
     { print; prev = $0 }

@@ -553,9 +553,12 @@ final class QueueStore: ObservableObject {
         case .stopFailure:
             // The turn ended in an error, so the transient "thinking" row is stale. Clear it
             // up front — before the notification guard — so an interrupted session never stays
-            // stuck showing "working" when the error banner is disabled.
+            // stuck showing "working" when the error banner is disabled. The turn is over, so
+            // its start time must go too, or the next `stop` without a fresh `working` would
+            // report a duration measured from the failed turn.
             clearAttention(for: parsed.sessionID)
             clearStatusRows(for: parsed.sessionID)
+            turnStart[parsed.sessionID] = nil
             guard settingEnabled("notifyErrors") else { return }
             let detail = parsed.errorMessage ?? parsed.errorType ?? "The turn ended due to an error."
             enqueueInfo(PendingItem(
@@ -629,10 +632,15 @@ final class QueueStore: ObservableObject {
     }
 
     /// Drops sessions that have gone silent past `sessionTTL` so the watch count does not
-    /// count terminals that were closed without a clean `SessionEnd`.
+    /// count terminals that were closed without a clean `SessionEnd`. The per-session side
+    /// tables go with them: a session killed mid-turn never sends `stop`/`sessionEnd`, and in
+    /// a long-running menu-bar app those entries would otherwise accumulate forever (and a
+    /// resumed session id would inherit a wildly stale turn-start time).
     private func pruneSessions() {
         let now = Date()
         sessionsLastSeen = sessionsLastSeen.filter { now.timeIntervalSince($0.value) < sessionTTL }
+        turnStart = turnStart.filter { sessionsLastSeen[$0.key] != nil }
+        sessionMode = sessionMode.filter { sessionsLastSeen[$0.key] != nil }
     }
 
     // MARK: - Dismissal

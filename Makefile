@@ -8,7 +8,9 @@
 
 APP_NAME  := AgentBar
 BUNDLE_ID := com.jreed91.AgentBar
-VERSION   ?= 0.1.0
+# Default to the latest release tag so a manual `make bundle zip` never stamps
+# a version older than what users already have. CI overrides this explicitly.
+VERSION   ?= $(shell { git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0-dev; } | sed 's/^v//')
 DIST      := dist
 
 APP_BUNDLE := $(DIST)/$(APP_NAME).app
@@ -22,7 +24,7 @@ all: bundle
 build:
 	swift build -c release --package-path app
 
-# Run the Swift unit tests (payload parsers, duration formatting).
+# Run the Swift unit tests (payload/transcript parsers, queue lifecycle, formatting).
 test:
 	swift test --package-path app
 
