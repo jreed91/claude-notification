@@ -19,7 +19,7 @@ jobs:
     name: Build app (macOS)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache Swift build
         uses: actions/cache@v4
@@ -44,7 +44,7 @@ jobs:
     name: Lint scripts & JSON
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
@@ -65,7 +65,7 @@ jobs:
     # include the semantic-release "chore(release):" commit, which we skip.
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
