@@ -438,3 +438,72 @@ final class PendingItem: Identifiable, ObservableObject {
         }
     }
 }
+
+// MARK: - Context gauge
+
+/// The pure logic behind a session row's model label and context-usage gauge, kept out of
+/// the view layer so it is unit-testable — the README documents this behaviour in detail,
+/// and a silent regression here mis-renders every gauge.
+enum ContextGauge {
+    /// The at-a-glance warning tier for a usage percent; the view tints these dim / amber /
+    /// red. Amber from 75%, red from 90%.
+    enum Tier: Equatable {
+        case normal
+        case warning
+        case critical
+    }
+
+    static let standardWindow = 200_000
+    static let largeWindow = 1_000_000
+
+    /// The nominal context window (tokens) for a model — the denominator of the usage
+    /// percent. Most of Claude's models are 200k-token windows; a few (e.g. Opus 4.8) ship a
+    /// 1M-token window as standard, and Sonnet 4+ can run 1M under a beta flag. The
+    /// transcript records neither the window nor the beta, so: models known to be 1M measure
+    /// against 1M always; everything else assumes the 200k standard but promotes to 1M once
+    /// usage crosses it — a 200k model can't exceed its window, so anything above 200k (a
+    /// default-1M model we don't recognize, or a Sonnet-4+ session on the 1M beta) must be
+    /// on the larger one.
+    static func window(for model: String?, usedTokens: Int) -> Int {
+        let name = (model ?? "").lowercased()
+        if isMillionTokenModel(name) { return largeWindow }
+        return usedTokens > standardWindow ? largeWindow : standardWindow
+    }
+
+    /// Models whose standard context window is 1M tokens (not a beta). Opus 4.8 and Sonnet 5
+    /// ship 1M.
+    static func isMillionTokenModel(_ name: String) -> Bool {
+        name.contains("opus-4-8") || name.contains("sonnet-5")
+    }
+
+    /// Context usage as a whole-number percent of the model's window, clamped to 0…100.
+    static func percent(_ tokens: Int, model: String?) -> Int {
+        let window = window(for: model, usedTokens: tokens)
+        return max(0, min(100, Int((Double(tokens) / Double(window) * 100).rounded())))
+    }
+
+    /// Dim under three-quarters full, amber past that, red as it approaches the window — a
+    /// quiet at-a-glance warning that a session is running low on context.
+    static func tier(_ tokens: Int, model: String?) -> Tier {
+        let percent = percent(tokens, model: model)
+        if percent >= 90 { return .critical }
+        if percent >= 75 { return .warning }
+        return .normal
+    }
+
+    /// Trims a raw model id (`claude-sonnet-4-5-20250929`) to a compact label (`sonnet-4-5`):
+    /// drop the `claude-` prefix and any trailing date/build stamp.
+    static func prettyModel(_ raw: String) -> String {
+        var name = raw
+        if name.hasPrefix("claude-") { name.removeFirst("claude-".count) }
+        if let stamp = name.range(of: "-[0-9]{6,}$", options: .regularExpression) {
+            name = String(name[name.startIndex..<stamp.lowerBound])
+        }
+        return name.isEmpty ? raw : name
+    }
+
+    /// A compact token count: `48k`, `1k`, or the raw number under a thousand.
+    static func formatTokens(_ tokens: Int) -> String {
+        tokens >= 1000 ? "\(Int((Double(tokens) / 1000).rounded()))k" : "\(tokens)"
+    }
+}
