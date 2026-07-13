@@ -18,12 +18,67 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         static let copy = "AGENTBAR_COPY"
     }
 
+    /// Category identifiers, one per banner *shape* rather than one per item. A fixed set
+    /// registered once at setup means posting/removing never mutates the category set — the
+    /// old per-item categories required a get→modify→set on every post and remove, and two
+    /// overlapping calls (hooks arrive concurrently) could clobber each other's writes,
+    /// delivering a banner with no actions. The per-item data ("Copy command"'s command)
+    /// already travels in the notification's userInfo.
+    private enum Category {
+        /// Permission carrying a shell command: Copy command / Snooze / Dismiss.
+        static let permissionWithCommand = "AGENTBAR_PERMISSION_COMMAND"
+        /// Any other attention item (question, MCP input, command-less permission):
+        /// Snooze / Dismiss.
+        static let attention = "AGENTBAR_ATTENTION"
+        /// Informational rows: Dismiss only.
+        static let info = "AGENTBAR_INFO"
+    }
+
     /// How long a snoozed item stays hushed before its banner is re-posted (if still pending).
     private let snoozeInterval: TimeInterval = 10 * 60
 
     func setup() {
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.setNotificationCategories(Self.staticCategories())
+    }
+
+    /// AgentBar is notify-only, so no action answers a prompt: clicking the banner body
+    /// brings your terminal forward. The buttons manage the notification itself — Dismiss
+    /// clears the row, Snooze hushes an attention item for a while, and Copy command puts a
+    /// permission's shell command on the clipboard so you can paste it in the terminal.
+    private static func staticCategories() -> Set<UNNotificationCategory> {
+        let copy = UNNotificationAction(identifier: Action.copy, title: "Copy command", options: [])
+        let snooze = UNNotificationAction(identifier: Action.snooze, title: "Snooze 10 min", options: [])
+        let dismiss = UNNotificationAction(identifier: Action.dismiss, title: "Dismiss", options: [])
+        return [
+            UNNotificationCategory(
+                identifier: Category.permissionWithCommand,
+                actions: [copy, snooze, dismiss],
+                intentIdentifiers: [],
+                options: []
+            ),
+            UNNotificationCategory(
+                identifier: Category.attention,
+                actions: [snooze, dismiss],
+                intentIdentifiers: [],
+                options: []
+            ),
+            UNNotificationCategory(
+                identifier: Category.info,
+                actions: [dismiss],
+                intentIdentifiers: [],
+                options: []
+            ),
+        ]
+    }
+
+    /// Which of the static categories an item's banner uses.
+    private static func categoryID(for item: PendingItem) -> String {
+        if case .permission(_, let command, _) = item.kind, command != nil {
+            return Category.permissionWithCommand
+        }
+        return item.needsResponse ? Category.attention : Category.info
     }
 
     // MARK: - Posting
@@ -48,8 +103,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             content.body = body
         }
 
-        let categoryID = "item-\(item.id.uuidString)"
-        content.categoryIdentifier = categoryID
+        content.categoryIdentifier = Self.categoryID(for: item)
         // Stash the command (if any) so "Copy command" works even after the row has cleared.
         var info: [String: Any] = ["itemID": item.id.uuidString]
         if case .permission(_, let command?, _) = item.kind { info["command"] = command }
@@ -58,58 +112,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             content.sound = Self.sound(for: item)
         }
 
-        let category = Self.buildCategory(id: categoryID, for: item)
         let request = UNNotificationRequest(
             identifier: item.id.uuidString,
             content: content,
             trigger: nil
         )
-
-        // Merge the item's category into the existing set, then post — this ordering
-        // ensures the actions exist before the banner is delivered.
-        let center = self.center
-        center.getNotificationCategories { existing in
-            var set = existing.filter { $0.identifier != categoryID }
-            set.insert(category)
-            center.setNotificationCategories(set)
-            center.add(request)
-        }
-    }
-
-    /// Builds the per-item category. AgentBar is notify-only, so no action answers a prompt:
-    /// clicking the banner body still just brings your terminal forward. The buttons manage
-    /// the notification itself — Dismiss clears the row, Snooze hushes an attention item for
-    /// a while, and Copy command puts a permission's shell command on the clipboard so you
-    /// can paste it in the terminal.
-    private static func buildCategory(id: String, for item: PendingItem) -> UNNotificationCategory {
-        var actions: [UNNotificationAction] = []
-
-        if case .permission(_, let command, _) = item.kind, command != nil {
-            actions.append(UNNotificationAction(
-                identifier: Action.copy,
-                title: "Copy command",
-                options: []
-            ))
-        }
-        if item.needsResponse {
-            actions.append(UNNotificationAction(
-                identifier: Action.snooze,
-                title: "Snooze 10 min",
-                options: []
-            ))
-        }
-        actions.append(UNNotificationAction(
-            identifier: Action.dismiss,
-            title: "Dismiss",
-            options: []
-        ))
-
-        return UNNotificationCategory(
-            identifier: id,
-            actions: actions,
-            intentIdentifiers: [],
-            options: []
-        )
+        center.add(request)
     }
 
     /// The sound for an item. When "Distinct sounds per event" is on, attention events get
@@ -132,15 +140,8 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func remove(_ item: PendingItem) {
         let identifier = item.id.uuidString
-        let categoryID = "item-\(identifier)"
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
-
-        let center = self.center
-        center.getNotificationCategories { existing in
-            let set = existing.filter { $0.identifier != categoryID }
-            center.setNotificationCategories(set)
-        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate
