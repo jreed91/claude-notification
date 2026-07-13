@@ -102,20 +102,24 @@ final class HookServer {
 
     // MARK: - Parsing
 
-    private struct HTTPRequest {
+    // The parser and auth check are internal (not private) so the unit tests can exercise
+    // them directly — they run on attacker-reachable input (any local process can hit the
+    // loopback port, before authentication), so their edge cases deserve pinned tests.
+
+    struct HTTPRequest {
         let method: String
         let path: String
         let headers: [String: String]
         let body: Data
     }
 
-    private enum ParseResult {
+    enum ParseResult {
         case incomplete
         case tooLarge
         case complete(HTTPRequest)
     }
 
-    private func parse(_ buffer: Data) -> ParseResult {
+    func parse(_ buffer: Data) -> ParseResult {
         let separator = Data("\r\n\r\n".utf8)
         guard let headerEnd = buffer.range(of: separator) else {
             // Guard against an unbounded header section.
@@ -217,7 +221,7 @@ final class HookServer {
     /// Timing-safe bearer check: any local process can reach the loopback port, and a
     /// plain `==` leaks how many leading token bytes matched. Comparing SHA-256 digests
     /// makes the comparison's timing independent of the attacker-controlled value.
-    private func authorized(_ authorizationHeader: String?) -> Bool {
+    func authorized(_ authorizationHeader: String?) -> Bool {
         guard let provided = authorizationHeader else { return false }
         let expected = SHA256.hash(data: Data("Bearer \(token)".utf8))
         let actual = SHA256.hash(data: Data(provided.utf8))
