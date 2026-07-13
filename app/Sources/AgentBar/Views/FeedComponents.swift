@@ -141,7 +141,7 @@ struct SourceTag: View {
 /// never resolve a prompt — they bring your terminal forward (focus) or clear the row
 /// (dismiss). The design's `y allow / n deny` become honest focus/dismiss actions.
 struct KeycapButton: View {
-    enum Style { case primary, deny, focus }
+    enum Style { case deny, focus }
 
     let key: String
     let label: String
@@ -173,13 +173,10 @@ struct KeycapButton: View {
         .buttonStyle(.plain)
     }
 
-    private var keyForeground: Color {
-        style == .primary ? .feedInk : .feedText
-    }
+    private var keyForeground: Color { .feedText }
 
     private var keyBackground: Color {
         switch style {
-        case .primary: return .feedGreen
         case .deny: return .kbdDeny
         case .focus: return .kbdFocus
         }
@@ -187,9 +184,8 @@ struct KeycapButton: View {
 
     private var keyShadow: Color {
         switch style {
-        case .primary: return Color(red: 42 / 255, green: 138 / 255, blue: 79 / 255)  // #2a8a4f
-        case .deny: return Color(red: 26 / 255, green: 42 / 255, blue: 32 / 255)      // #1a2a20
-        case .focus: return Color(red: 20 / 255, green: 48 / 255, blue: 32 / 255)     // #143020
+        case .deny: return Color(red: 26 / 255, green: 42 / 255, blue: 32 / 255)   // #1a2a20
+        case .focus: return Color(red: 20 / 255, green: 48 / 255, blue: 32 / 255)  // #143020
         }
     }
 }
