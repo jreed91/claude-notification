@@ -52,7 +52,7 @@ feed it). Install both.
 ### 1. App (Homebrew cask)
 
 ```sh
-brew tap jreed91/claude-notification https://github.com/jreed91/claude-notification
+brew tap jreed91/agentbarn https://github.com/jreed91/agentbar
 brew install --cask agentbar
 ```
 
@@ -64,7 +64,7 @@ URL is required because the repository is not named `homebrew-*`.
 In Claude Code:
 
 ```
-/plugin marketplace add jreed91/claude-notification
+/plugin marketplace add jreed91/agentbar
 /plugin install agentbar@agentbar
 ```
 
@@ -79,7 +79,7 @@ installed (step 1), run:
 
 ```sh
 brew install --cask agentbar          # if you haven't already (step 1)
-git clone https://github.com/jreed91/claude-notification && cd claude-notification
+git clone https://github.com/jreed91/agentbar && cd agentbar
 make install-copilot                   # writes ~/.copilot/hooks/agentbar.json
 ```
 
@@ -252,7 +252,7 @@ finds.
 Repository layout:
 
 ```
-claude-notification/
+agentbar/
 ├── .claude-plugin/marketplace.json    # plugin marketplace (repo root)
 ├── docs/implementation-plan.md        # full design & decisions
 ├── plugin/                            # the Claude Code plugin ("agentbar")
