@@ -45,6 +45,14 @@ struct ClaudeSession: Identifiable, Sendable, Hashable {
     /// `message.usage`. This is the size of the prompt that turn saw — the closest read-only
     /// analog to Claude Code's own context gauge. Nil when no usage was found.
     let contextTokens: Int?
+    /// Whether the session's most recent main-chain assistant turn was still mid-work: its
+    /// `stop_reason` was `tool_use`, meaning the agent had committed to another tool call and
+    /// had not yet ended the turn. This is the transcript's own authoritative "still working"
+    /// signal — unlike a write-recency guess it stays true across a long-running tool that
+    /// writes nothing for minutes. `false` for a completed turn (`end_turn`/`max_tokens`), a
+    /// brand-new session with no assistant turn yet, or a Copilot session (no comparable
+    /// field). Consulted only when there are no live hook events; live events always win.
+    let isTurnInFlight: Bool
     /// The transcript file, kept so the row can reveal it in Finder.
     let fileURL: URL
     /// Which agent this session belongs to. Set by the scanner that discovered it —
@@ -138,7 +146,25 @@ actor SessionScanner {
     /// thinner row rather than a dropped session.
     private static func parse(url: URL, modified: Date) -> ClaudeSession? {
         guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return parseTranscript(
+            contents: contents,
+            sessionID: url.deletingPathExtension().lastPathComponent,
+            folderName: url.deletingLastPathComponent().lastPathComponent,
+            modified: modified,
+            fileURL: url
+        )
+    }
 
+    /// The pure core of the parse, split out so it can be unit-tested from a string without
+    /// touching disk. `folderName` is the path-encoded project directory, used only to
+    /// reconstruct a `cwd` for the rare transcript that carries none.
+    static func parseTranscript(
+        contents: String,
+        sessionID: String,
+        folderName: String,
+        modified: Date,
+        fileURL: URL
+    ) -> ClaudeSession {
         var firstUserText: String?
         var summaryText: String?
         var cwd: String?
@@ -147,6 +173,7 @@ actor SessionScanner {
         var trail: [ActivityEntry] = []
         var model: String?
         var contextTokens: Int?
+        var lastStopReason: String?
 
         for line in contents.split(separator: "\n", omittingEmptySubsequences: true) {
             guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
@@ -193,6 +220,14 @@ actor SessionScanner {
                         if let tokens = parseContextTokens(from: message["usage"] ?? entry["usage"]) {
                             contextTokens = tokens
                         }
+                        // The turn's completion signal, last write wins: `tool_use` means the
+                        // agent committed to another tool and is still working; `end_turn`
+                        // (or `max_tokens`) means the turn is done. A message still streaming
+                        // carries no `stop_reason` yet — leave the prior value so an in-flight
+                        // turn isn't misread as finished mid-stream.
+                        if let reason = message["stop_reason"] as? String, !reason.isEmpty {
+                            lastStopReason = reason
+                        }
                     }
                 }
             }
@@ -200,8 +235,7 @@ actor SessionScanner {
 
         let rawTitle = firstUserText ?? summaryText ?? "(no prompt)"
         let title = condense(rawTitle)
-        let sessionID = url.deletingPathExtension().lastPathComponent
-        let resolvedCwd = cwd ?? decodeProjectFolder(url.deletingLastPathComponent().lastPathComponent)
+        let resolvedCwd = cwd ?? decodeProjectFolder(folderName)
 
         return ClaudeSession(
             id: sessionID,
@@ -213,7 +247,8 @@ actor SessionScanner {
             trail: trail,
             model: model,
             contextTokens: contextTokens,
-            fileURL: url,
+            isTurnInFlight: lastStopReason == "tool_use",
+            fileURL: fileURL,
             source: .claude
         )
     }

@@ -81,8 +81,17 @@ final class QueueStore: ObservableObject {
 
     /// When we have no live hook events for a session, a transcript written more recently
     /// than this is taken as "still working" — Claude writes continuously while working and
-    /// goes quiet when waiting. Kept short so a finished session settles to idle quickly.
+    /// goes quiet when waiting. Kept short so a finished session settles to idle quickly. Used
+    /// only for a turn that is *not* known to be in flight (no `tool_use` stop_reason).
     private let workingWindow: TimeInterval = 12
+
+    /// The staleness guard for a turn the transcript says is still in flight (its last
+    /// assistant message stopped for `tool_use`). A single long tool call — a build, a big
+    /// test run — can write nothing for minutes while the agent is genuinely working, so this
+    /// is far longer than `workingWindow`; it only exists to settle an abandoned session (a
+    /// terminal killed mid-tool, no clean `SessionEnd`) back to idle eventually rather than
+    /// pinning it to "working" forever.
+    private let inFlightWindow: TimeInterval = 10 * 60
 
     /// Set by `AppState` after construction. Weak because `AppState` owns both objects.
     weak var notificationManager: NotificationManager?
@@ -241,9 +250,17 @@ final class QueueStore: ObservableObject {
             let liveLatest = live.map(\.createdAt).max() ?? .distantPast
             // Live hook events are authoritative. Only when we have none — e.g. AgentBar was
             // started mid-turn and never caught this session's `working` hook — do we infer
-            // activity from the transcript: Claude writes to it continuously while working
-            // and goes quiet when waiting, so a very recent write means it is still working.
-            let fresh = live.isEmpty && now.timeIntervalSince(session.lastActivity) < workingWindow
+            // activity from the transcript. Prefer its own turn-state signal: a turn stopped
+            // for `tool_use` is still working even if the running tool has written nothing for
+            // minutes, so it is trusted for the long `inFlightWindow`. Absent that signal
+            // (finished turn, other agent), fall back to write-recency: Claude writes
+            // continuously while working and goes quiet when waiting, so a very recent write
+            // still reads as working within the short `workingWindow`.
+            let sinceWrite = now.timeIntervalSince(session.lastActivity)
+            let inferredWorking = session.isTurnInFlight
+                ? sinceWrite < inFlightWindow
+                : sinceWrite < workingWindow
+            let fresh = live.isEmpty && inferredWorking
             let rowStatus: FeedStatus
             if live.isEmpty {
                 rowStatus = fresh ? .working : .idle
@@ -471,8 +488,12 @@ final class QueueStore: ObservableObject {
             ))
 
         case .stop:
-            // The turn ended, so any prompt you were shown for this session is resolved.
+            // The turn ended, so any prompt you were shown for this session is resolved, and
+            // the transient "thinking" status row from this turn is now stale. Clear both up
+            // front — before the notification guard — so a finished session never stays stuck
+            // showing "working" when the "task finished" banner happens to be disabled.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             let elapsed = turnStart[parsed.sessionID].map { Date().timeIntervalSince($0) }
             turnStart[parsed.sessionID] = nil
             guard settingEnabled("notifyTaskFinished") else { return }
@@ -500,8 +521,11 @@ final class QueueStore: ObservableObject {
             ))
 
         case .sessionEnd:
-            // The session is gone: stop watching it and clear anything still pending.
+            // The session is gone: stop watching it and clear anything still pending —
+            // including the transient "thinking" row — regardless of whether the
+            // "session ended" banner is enabled, so an ended session never lingers as working.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             sessionsLastSeen[parsed.sessionID] = nil
             turnStart[parsed.sessionID] = nil
             sessionMode[parsed.sessionID] = nil
@@ -516,7 +540,11 @@ final class QueueStore: ObservableObject {
             ))
 
         case .stopFailure:
+            // The turn ended in an error, so the transient "thinking" row is stale. Clear it
+            // up front — before the notification guard — so an interrupted session never stays
+            // stuck showing "working" when the error banner is disabled.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             guard settingEnabled("notifyErrors") else { return }
             let detail = parsed.errorMessage ?? parsed.errorType ?? "The turn ended due to an error."
             enqueueInfo(PendingItem(
