@@ -471,8 +471,12 @@ final class QueueStore: ObservableObject {
             ))
 
         case .stop:
-            // The turn ended, so any prompt you were shown for this session is resolved.
+            // The turn ended, so any prompt you were shown for this session is resolved, and
+            // the transient "thinking" status row from this turn is now stale. Clear both up
+            // front — before the notification guard — so a finished session never stays stuck
+            // showing "working" when the "task finished" banner happens to be disabled.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             let elapsed = turnStart[parsed.sessionID].map { Date().timeIntervalSince($0) }
             turnStart[parsed.sessionID] = nil
             guard settingEnabled("notifyTaskFinished") else { return }
@@ -500,8 +504,11 @@ final class QueueStore: ObservableObject {
             ))
 
         case .sessionEnd:
-            // The session is gone: stop watching it and clear anything still pending.
+            // The session is gone: stop watching it and clear anything still pending —
+            // including the transient "thinking" row — regardless of whether the
+            // "session ended" banner is enabled, so an ended session never lingers as working.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             sessionsLastSeen[parsed.sessionID] = nil
             turnStart[parsed.sessionID] = nil
             sessionMode[parsed.sessionID] = nil
@@ -516,7 +523,11 @@ final class QueueStore: ObservableObject {
             ))
 
         case .stopFailure:
+            // The turn ended in an error, so the transient "thinking" row is stale. Clear it
+            // up front — before the notification guard — so an interrupted session never stays
+            // stuck showing "working" when the error banner is disabled.
             clearAttention(for: parsed.sessionID)
+            clearStatusRows(for: parsed.sessionID)
             guard settingEnabled("notifyErrors") else { return }
             let detail = parsed.errorMessage ?? parsed.errorType ?? "The turn ended due to an error."
             enqueueInfo(PendingItem(
