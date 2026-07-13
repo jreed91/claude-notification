@@ -46,6 +46,20 @@ fi
 APP_HOOK="/Applications/AgentBar.app/Contents/Resources/agentbar-hook"
 REPO_HOOK="${REPO_ROOT}/plugin/bin/agentbar-hook"
 if [ -n "${AGENTBAR_HOOK:-}" ]; then
+  # An explicit override must be an absolute path to an executable — Copilot runs
+  # hooks from arbitrary working directories, so a relative or missing path would
+  # silently never fire.
+  case "$AGENTBAR_HOOK" in
+    /*) ;;
+    *)
+      echo "error: AGENTBAR_HOOK must be an absolute path, got: ${AGENTBAR_HOOK}" >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -x "$AGENTBAR_HOOK" ]; then
+    echo "error: AGENTBAR_HOOK is not an executable file: ${AGENTBAR_HOOK}" >&2
+    exit 1
+  fi
   HOOK="$AGENTBAR_HOOK"
 elif [ -x "$APP_HOOK" ]; then
   HOOK="$APP_HOOK"
@@ -73,5 +87,5 @@ sed "s|__AGENTBAR_HOOK__|\\\\\"${esc_hook}\\\\\"|g" "$TEMPLATE" > "$TARGET"
 
 echo "==> Wrote ${TARGET}"
 echo "    bridge: ${HOOK}"
-echo "    events: userPromptSubmitted, postToolUse, agentStop, subagentStop, sessionEnd, errorOccurred"
+echo "    events: userPromptSubmitted, postToolUse, sessionEnd, errorOccurred"
 echo "    Restart any running Copilot CLI sessions for the change to take effect."
