@@ -81,8 +81,17 @@ final class QueueStore: ObservableObject {
 
     /// When we have no live hook events for a session, a transcript written more recently
     /// than this is taken as "still working" — Claude writes continuously while working and
-    /// goes quiet when waiting. Kept short so a finished session settles to idle quickly.
+    /// goes quiet when waiting. Kept short so a finished session settles to idle quickly. Used
+    /// only for a turn that is *not* known to be in flight (no `tool_use` stop_reason).
     private let workingWindow: TimeInterval = 12
+
+    /// The staleness guard for a turn the transcript says is still in flight (its last
+    /// assistant message stopped for `tool_use`). A single long tool call — a build, a big
+    /// test run — can write nothing for minutes while the agent is genuinely working, so this
+    /// is far longer than `workingWindow`; it only exists to settle an abandoned session (a
+    /// terminal killed mid-tool, no clean `SessionEnd`) back to idle eventually rather than
+    /// pinning it to "working" forever.
+    private let inFlightWindow: TimeInterval = 10 * 60
 
     /// Set by `AppState` after construction. Weak because `AppState` owns both objects.
     weak var notificationManager: NotificationManager?
@@ -241,9 +250,17 @@ final class QueueStore: ObservableObject {
             let liveLatest = live.map(\.createdAt).max() ?? .distantPast
             // Live hook events are authoritative. Only when we have none — e.g. AgentBar was
             // started mid-turn and never caught this session's `working` hook — do we infer
-            // activity from the transcript: Claude writes to it continuously while working
-            // and goes quiet when waiting, so a very recent write means it is still working.
-            let fresh = live.isEmpty && now.timeIntervalSince(session.lastActivity) < workingWindow
+            // activity from the transcript. Prefer its own turn-state signal: a turn stopped
+            // for `tool_use` is still working even if the running tool has written nothing for
+            // minutes, so it is trusted for the long `inFlightWindow`. Absent that signal
+            // (finished turn, other agent), fall back to write-recency: Claude writes
+            // continuously while working and goes quiet when waiting, so a very recent write
+            // still reads as working within the short `workingWindow`.
+            let sinceWrite = now.timeIntervalSince(session.lastActivity)
+            let inferredWorking = session.isTurnInFlight
+                ? sinceWrite < inFlightWindow
+                : sinceWrite < workingWindow
+            let fresh = live.isEmpty && inferredWorking
             let rowStatus: FeedStatus
             if live.isEmpty {
                 rowStatus = fresh ? .working : .idle

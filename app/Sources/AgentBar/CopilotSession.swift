@@ -167,6 +167,9 @@ actor CopilotSessionScanner {
             // so these stay nil and the row simply omits the model / context chips.
             model: nil,
             contextTokens: nil,
+            // No `stop_reason` analog in Copilot's event stream, so we can't read an
+            // authoritative in-flight signal; the roster falls back to write-recency for it.
+            isTurnInFlight: false,
             fileURL: fileURL,
             source: .copilot
         )
