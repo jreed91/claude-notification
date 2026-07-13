@@ -5,7 +5,7 @@
   "author": {
     "name": "jreed91"
   },
-  "homepage": "https://github.com/jreed91/claude-notification",
-  "repository": "https://github.com/jreed91/claude-notification",
+  "homepage": "https://github.com/jreed91/agentbar",
+  "repository": "https://github.com/jreed91/agentbar",
   "keywords": ["macos", "menu-bar", "notifications", "hooks"]
 }

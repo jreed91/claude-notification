@@ -119,8 +119,8 @@ ephemeral port; port + token are regenerated each app launch.
 ## 4. Repository layout
 
 ```
-claude-notification/
-├── .claude-plugin/marketplace.json    # marketplace at repo root → /plugin marketplace add jreed91/claude-notification
+agentbar/
+├── .claude-plugin/marketplace.json    # marketplace at repo root → /plugin marketplace add jreed91/agentbar
 ├── docs/
 │   └── implementation-plan.md         # this document
 ├── plugin/                            # the Claude Code plugin ("agentbar")
@@ -200,9 +200,9 @@ claude-notification/
 
 - **Cask** (`Casks/agentbar.rb`): installs `AgentBar.app` from GitHub Releases;
   `depends_on macos: ">= :sonoma"`. Users install with
-  `brew tap jreed91/claude-notification https://github.com/jreed91/claude-notification && brew install --cask agentbar`
+  `brew tap jreed91/agentbar https://github.com/jreed91/agentbar && brew install --cask agentbar`
   (explicit-URL tap, since the repo isn't named `homebrew-*`).
-- **Plugin**: `/plugin marketplace add jreed91/claude-notification` then
+- **Plugin**: `/plugin marketplace add jreed91/agentbar` then
   `/plugin install agentbar@agentbar`.
 - **Release CI** (`release.yml`, on tag `v*`): `swift build -c release` on a macOS
   runner → `scripts/bundle.sh` → `codesign --options runtime` with the imported
