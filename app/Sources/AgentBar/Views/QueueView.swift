@@ -27,6 +27,13 @@ struct QueueView: View {
     /// when the popover shrinks. Captured on open, reset when it closes.
     @State private var anchorTop: CGFloat?
 
+    /// The window origin `pinTop` last applied (or observed while holding the anchor). An
+    /// origin that differs from this is a move we didn't make — AppKit re-seating the popover
+    /// under a status item, e.g. reopening it from another display's menu bar — which makes
+    /// the captured anchor stale. `onDisappear` can't be trusted to clear the anchor because
+    /// the MenuBarExtra window is hidden, not torn down, between opens.
+    @State private var lastAppliedOrigin: CGPoint?
+
     /// When true the feed area shows the recent-activity log instead of the live sessions.
     @State private var showHistory = false
 
@@ -109,6 +116,7 @@ struct QueueView: View {
         .onAppear { installKeyMonitor() }
         .onDisappear {
             anchorTop = nil
+            lastAppliedOrigin = nil
             removeKeyMonitor()
         }
     }
@@ -134,8 +142,26 @@ struct QueueView: View {
     /// the panel under the status item — anchored the window to a stale, off-screen spot that
     /// this method then re-asserted on every SwiftUI update. Clamping the anchor, the height,
     /// and the final origin to `visibleFrame` keeps the popover fully on-screen either way.
+    ///
+    /// The anchor is also dropped whenever the window moved without us moving it: AppKit
+    /// re-seats the popover under the clicked status item on every open, which on a
+    /// multi-display setup can be a different screen, and `onDisappear` doesn't reliably run
+    /// between opens (the MenuBarExtra window is hidden, not torn down). Re-anchoring at the
+    /// new seat keeps the pin following the menu bar the user actually clicked instead of
+    /// dragging the popover back to the previous display.
     private func pinTop(of window: NSWindow) {
         guard window.isVisible, window.frame.height > 1 else { return }
+
+        // An origin change we didn't apply means AppKit re-seated the popover under a status
+        // item — on a multi-display setup possibly a different screen entirely. The old
+        // anchor is stale then: drop it and re-anchor at the new seat, instead of yanking the
+        // window back to where it last opened (the "jumps across the screen" bug). Height
+        // changes don't trip this — MenuBarExtra resizes around a fixed bottom-left origin,
+        // and the origin moves only through `setFrameOrigin` below.
+        if let last = lastAppliedOrigin,
+           abs(window.frame.origin.x - last.x) > 0.5 || abs(window.frame.origin.y - last.y) > 0.5 {
+            anchorTop = nil
+        }
 
         // The visible frame excludes the menu bar and Dock. Without a screen (window seated
         // off every display) fall back to the unclamped behavior so we still pin the top.
@@ -177,6 +203,9 @@ struct QueueView: View {
         if abs(frame.origin.x - targetX) > 0.5 || abs(frame.origin.y - targetY) > 0.5 {
             window.setFrameOrigin(NSPoint(x: targetX, y: targetY))
         }
+        // Record where we left the origin (moved or not) so the next pass can tell our own
+        // positioning apart from an AppKit re-seat.
+        lastAppliedOrigin = CGPoint(x: targetX, y: targetY)
     }
 
     // MARK: - Resize handle
