@@ -116,11 +116,18 @@ final class QueueStore: ObservableObject {
     /// the session ends.
     private var sessionMode: [String: String] = [:]
 
-    /// A bounded, newest-first log of recently surfaced events, for the popover's history
-    /// view — "what happened while I was away". Purely informational and capped at
-    /// `historyLimit`, so it never grows unbounded.
+    /// The newest slice of the persisted activity log, mirrored from `historyLog` for the
+    /// popover's history view — "what happened while I was away". The full log (with its 7-day
+    /// retention and daily-digest math) lives in `historyLog`; this published copy is the
+    /// bounded, view-ready set so SwiftUI has a value to observe. The public shape is unchanged
+    /// from when this was an in-memory array, so the views need no changes.
     @Published private(set) var history: [HistoryEntry] = []
-    private let historyLimit = 60
+
+    /// Owns activity-log persistence and the digest rollup. Injectable so tests root it in a
+    /// temp directory instead of the real Application Support tree; the default loads (but does
+    /// not write) the on-disk log at construction, so merely creating a `QueueStore` never
+    /// touches the file — only an append/clear persists.
+    private let historyLog: HistoryLog
 
     /// Project working directories the user has muted. Their events still appear in the feed
     /// and still badge the icon, but post no banner and play no sound. Mirrored to
@@ -155,7 +162,9 @@ final class QueueStore: ObservableObject {
         }
     }
 
-    init() {
+    init(historyLog: HistoryLog = HistoryLog()) {
+        self.historyLog = historyLog
+
         // Seed the per-source timestamps from persistence so the Setup panel and empty-state
         // pointer don't claim "never heard from" for a plugin that was working before the last
         // relaunch. The overall `lastHookAt` is the newest of the persisted per-source values,
@@ -168,6 +177,10 @@ final class QueueStore: ObservableObject {
         }
         lastHookBySource = seeded
         lastHookAt = seeded.values.max()
+
+        // Seed the published history from the persisted log so a relaunch shows what happened
+        // while the app was away, not an empty list.
+        history = historyLog.entriesForView
     }
 
     /// Records that a hook event just arrived from `source`, updating the overall and
@@ -781,9 +794,19 @@ final class QueueStore: ObservableObject {
     /// session and clears their banners. Called when a prompt has been answered in the
     /// terminal (a tool completed, or the turn ended), since there is no reply channel to
     /// clear them otherwise. Informational status rows are left for their own lifecycle.
+    ///
+    /// Each cleared prompt was waiting on you and is now resolved — a tool finished, a new turn
+    /// began, or a successor prompt superseded it (all of which mean it was answered in the
+    /// terminal) — so record how long it sat, for the daily digest. This is the terminal-side
+    /// clear path; the user's manual-dismiss path is `dismiss(_:)`, and the two don't overlap
+    /// (whichever removes an item first, the other no longer finds it), so a prompt is sampled
+    /// exactly once.
     private func clearAttention(for sessionID: String) {
         let resolved = items.filter { $0.sessionID == sessionID && $0.needsResponse }
-        for item in resolved { notificationManager?.remove(item) }
+        for item in resolved {
+            notificationManager?.remove(item)
+            recordWait(for: item)
+        }
         items.removeAll { item in resolved.contains { $0.id == item.id } }
     }
 
@@ -803,8 +826,15 @@ final class QueueStore: ObservableObject {
 
     /// Removes an item from the queue and clears its banner. Used both by the user's
     /// dismiss button and by the auto-expiry timer for informational rows.
+    ///
+    /// When the user dismisses an attention prompt by hand, sample how long it waited for the
+    /// daily digest — this is the manual-dismiss counterpart to `clearAttention`'s terminal
+    /// path. Guarded on `needsResponse` so the auto-expiry of an informational row (which also
+    /// routes through here) is never counted as a wait, and so an item can't be double-sampled
+    /// (an info row has no wait; an attention row clears via exactly one of these two paths).
     func dismiss(_ item: PendingItem) {
         notificationManager?.remove(item)
+        if item.needsResponse { recordWait(for: item) }
         items.removeAll { $0.id == item.id }
     }
 
@@ -880,9 +910,9 @@ final class QueueStore: ObservableObject {
 
     // MARK: - History
 
-    /// Appends a newest-first snapshot of a surfaced event to the activity log, trimming to
-    /// `historyLimit`. Working/thinking rows are transient and never recorded (they route
-    /// through `enqueueWorking`, which does not call this).
+    /// Appends a snapshot of a surfaced event to the persistent activity log and mirrors the
+    /// newest slice into `history` for the view. Working/thinking rows are transient and never
+    /// recorded (they route through `enqueueWorking`, which does not call this).
     private func recordHistory(_ item: PendingItem) {
         let project = item.cwd.isEmpty ? "—" : URL(fileURLWithPath: item.cwd).lastPathComponent
         let entry = HistoryEntry(
@@ -891,12 +921,29 @@ final class QueueStore: ObservableObject {
             status: item.feedStatus,
             summary: item.summaryLine
         )
-        history.insert(entry, at: 0)
-        if history.count > historyLimit {
-            history.removeLast(history.count - historyLimit)
-        }
+        historyLog.append(entry)
+        history = historyLog.entriesForView
     }
 
-    /// Clears the activity log (bound to a control in the history view).
-    func clearHistory() { history.removeAll() }
+    /// Records how long an answered/dismissed attention prompt sat waiting, into the persistent
+    /// log's wait samples (for the daily digest). The wait is measured from the item's
+    /// `createdAt` to now, the moment it cleared. Only ever called for items that `needsResponse`
+    /// so an auto-expiring info row is never counted (see `clearAttention` / `dismiss`).
+    private func recordWait(for item: PendingItem) {
+        let seconds = Date().timeIntervalSince(item.createdAt)
+        historyLog.record(wait: WaitSample(at: Date(), seconds: seconds))
+    }
+
+    /// The daily digest for `day` (defaults to today), for the history view's summary strip.
+    /// Pure and cheap — recomputed from the persisted log each read.
+    func historyDigest(for day: Date = Date()) -> DailyDigest {
+        historyLog.digest(for: day)
+    }
+
+    /// Clears the activity log (bound to a control in the history view). Clears the persisted
+    /// entries and wait samples, then empties the mirrored view copy.
+    func clearHistory() {
+        historyLog.clear()
+        history = historyLog.entriesForView
+    }
 }

@@ -36,14 +36,14 @@ final class QueueStoreHealthTests: XCTestCase {
     }
 
     func testNoHooksMeansNeverHeardFrom() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
         XCTAssertNil(queue.lastHookAt)
         XCTAssertNil(queue.lastHookAt(for: .claude))
         XCTAssertNil(queue.lastHookAt(for: .copilot))
     }
 
     func testSubmitRecordsPerSourceAndOverall() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
         queue.submit(event: .working, payload: payload(sessionID: "s1"), source: .claude)
 
         XCTAssertNotNil(queue.lastHookAt(for: .claude), "a Claude hook should mark Claude heard")
@@ -52,7 +52,7 @@ final class QueueStoreHealthTests: XCTestCase {
     }
 
     func testPerSourceIsTrackedIndependently() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
         queue.submit(event: .working, payload: payload(sessionID: "c1"), source: .copilot)
 
         XCTAssertNotNil(queue.lastHookAt(for: .copilot))
@@ -61,12 +61,12 @@ final class QueueStoreHealthTests: XCTestCase {
     }
 
     func testTimestampsPersistAcrossInstances() {
-        let first = QueueStore()
+        let first = makeIsolatedQueueStore()
         first.submit(event: .stop, payload: payload(sessionID: "s1"), source: .claude)
         XCTAssertNotNil(first.lastHookAt(for: .claude))
 
         // A fresh store (a relaunch) seeds from persistence, so it must not read as "never".
-        let second = QueueStore()
+        let second = makeIsolatedQueueStore()
         XCTAssertNotNil(second.lastHookAt(for: .claude),
                         "a relaunch after real activity should not claim 'never heard from'")
     }

@@ -86,7 +86,7 @@ struct QueueView: View {
             // since the popover is anchored under the icon at the top).
             Group {
                 if showHistory {
-                    HistoryView(entries: queue.history, onClear: { queue.clearHistory() })
+                    HistoryView(entries: queue.history, digest: queue.historyDigest(), onClear: { queue.clearHistory() })
                 } else if queue.sessionRows.isEmpty {
                     emptyState
                 } else {

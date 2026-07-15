@@ -37,12 +37,12 @@ final class QueueStoreFocusTests: XCTestCase {
     }
 
     func testReturnsNilWhenNothingNeedsYou() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
         XCTAssertNil(queue.longestWaitingAttentionRow(), "no attention pending → nothing to focus")
     }
 
     func testSelectsTheLongestWaitingSession() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
 
         queue.submit(event: .ask, payload: askPayload(sessionID: "old"))
         // `PendingItem.createdAt` is stamped at construction, so a brief pause guarantees the
@@ -56,7 +56,7 @@ final class QueueStoreFocusTests: XCTestCase {
     }
 
     func testIgnoresSessionsWithNoPendingAttention() {
-        let queue = QueueStore()
+        let queue = makeIsolatedQueueStore()
 
         // A working (info) row needs no response, so a session carrying only that is not a
         // focus target; the one waiting session is.
