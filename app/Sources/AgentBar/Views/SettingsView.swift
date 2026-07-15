@@ -27,6 +27,13 @@ struct SettingsView: View {
 
     private let hours = Array(0...23)
 
+    /// The app's marketing version (`CFBundleShortVersionString`), stamped into the release
+    /// bundle by `scripts/bundle.sh`. A bare `swift run` binary has no Info.plist to read, so
+    /// fall back to "dev" — which also makes an unstamped local build obvious at a glance.
+    private var appVersion: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "dev"
+    }
+
     var body: some View {
         Form {
             Section("Notify me about") {
@@ -90,6 +97,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
+                LabeledContent("Version", value: appVersion)
             }
         }
         .formStyle(.grouped)

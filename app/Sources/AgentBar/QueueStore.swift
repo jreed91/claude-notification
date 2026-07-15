@@ -55,10 +55,13 @@ struct SessionRow: Identifiable {
 }
 
 /// At-a-glance counts for the dashboard summary strip, bucketed from the merged session
-/// rows: sessions waiting on you (permission/question), actively working, and quiet.
+/// rows: sessions waiting on you (permission/question), actively working, errored, and quiet
+/// (done or idle). Errors get their own bucket so an errored session is never folded into the
+/// least-urgent "quiet" tier.
 struct DashboardSummary {
     let needsYou: Int
     let working: Int
+    let errors: Int
     let idle: Int
 }
 
@@ -149,36 +152,48 @@ final class QueueStore: ObservableObject {
         items.filter { $0.feedStatus == .question }.count
     }
 
-    /// The overall mascot mood, in priority order: permission out-shouts a question, which
-    /// out-shouts background work, which out-shouts a finished task, and an empty queue is
-    /// happy. Mirrors the design's per-scenario mood.
+    /// The overall mascot mood, in priority order matching the hero's tiers: a pending
+    /// permission out-shouts a pending question, which out-shouts work in flight (a live
+    /// working item *or* a working session row), which out-shouts a just-finished task (a
+    /// `.done` info row still present). A quiet or empty roster is simply happy — `.done` is
+    /// reserved for when something actually finished, not for standing by.
     var mood: FeedMood {
-        if items.isEmpty { return .happy }
         if pendingPermissions > 0 { return .permission }
         if pendingQuestions > 0 { return .question }
-        if items.contains(where: { $0.feedStatus == .working }) { return .working }
-        return .done
+        if items.contains(where: { $0.feedStatus == .working }) || rosterFacts().anyWorking {
+            return .working
+        }
+        if items.contains(where: { $0.feedStatus == .done }) { return .done }
+        return .happy
     }
 
     /// The ASCII face shown in the menu-bar label (design `asciiMini`).
     var menuBarFace: String { mood.miniFace }
 
     /// At-a-glance dashboard counts bucketed from the merged session rows: how many sessions
-    /// need you (a permission or question is waiting), are actively working, and are quiet
-    /// (idle, finished, or errored). Drives the popover's dashboard summary strip.
+    /// need you (a permission or question is waiting), are actively working, have errored, and
+    /// are quiet (finished or idle). Errors bucket separately so an errored session is surfaced
+    /// rather than folded into the calm "quiet" count. Drives the popover's dashboard summary
+    /// strip.
     var dashboardSummary: DashboardSummary {
-        var needsYou = 0, working = 0, idle = 0
+        var needsYou = 0, working = 0, errors = 0, idle = 0
         for row in sessionRows {
             switch row.status {
             case .permission, .question: needsYou += 1
             case .working: working += 1
-            case .done, .error, .idle: idle += 1
+            case .error: errors += 1
+            case .done, .idle: idle += 1
             }
         }
-        return DashboardSummary(needsYou: needsYou, working: working, idle: idle)
+        return DashboardSummary(needsYou: needsYou, working: working, errors: errors, idle: idle)
     }
 
     /// The hero headline in the popover — a short summary of what, if anything, needs you.
+    /// Attention counts stay item-based (they are precise); the working and quiet tiers are
+    /// roster-based (see `rosterFacts`) so the hero agrees with the dashboard strip and the
+    /// roster beneath it instead of reading "Task complete" over a WORKING group or an empty
+    /// feed. Copy is source-aware: the agent's name comes from the sessions in play, not a
+    /// hard-coded "Claude".
     var headline: String {
         let permissions = pendingPermissions
         let questions = pendingQuestions
@@ -189,32 +204,83 @@ final class QueueStore: ObservableObject {
             } else if permissions > 0 {
                 return permissions == 1 ? "Permission needed" : "\(permissions) permissions need you"
             } else {
-                return questions == 1 ? "Claude has a question" : "\(questions) questions waiting"
+                return questions == 1 ? "\(attentionAgentName) has a question" : "\(questions) questions waiting"
             }
         }
-        if items.contains(where: { $0.feedStatus == .working }) { return "Claude's on it" }
-        return "Task complete"
+        let facts = rosterFacts()
+        if items.contains(where: { $0.feedStatus == .working }) || facts.anyWorking {
+            if facts.workingSources.count == 1, let only = facts.workingSources.first {
+                return "\(only.shortName)'s on it"
+            }
+            return "Agents at work"
+        }
+        if facts.count == 0 { return "Standing by" }
+        return "All quiet"
     }
 
-    /// The hero subline — a one-line breakdown under the headline.
+    /// The hero subline — a one-line breakdown under the headline, mirroring `headline`'s tiers.
     var subline: String {
         let permissions = pendingPermissions
         let questions = pendingQuestions
         if permissions > 0 && questions > 0 {
             return "\(countPhrase(permissions, "permission")) · \(countPhrase(questions, "question"))"
         } else if permissions > 0 {
-            return permissions == 1 ? "Claude wants to run a command." : "\(permissions) commands need approval."
+            return permissions == 1 ? "\(attentionAgentName) wants to run a command." : "\(permissions) commands need approval."
         } else if questions > 0 {
             return questions == 1 ? "One session is waiting on your answer." : "\(questions) sessions are waiting on you."
         }
-        if items.contains(where: { $0.feedStatus == .working }) {
+        let facts = rosterFacts()
+        if items.contains(where: { $0.feedStatus == .working }) || facts.anyWorking {
+            if facts.workingCount > 1 {
+                return "\(countPhrase(facts.workingCount, "session")) working — nothing needs you."
+            }
             return "Working — nothing needs you yet."
         }
-        return "Recent activity below."
+        if facts.count == 0 { return "Start a Claude Code or Copilot session to watch it here." }
+        return "\(countPhrase(facts.count, "session")) idle — nothing needs you."
     }
 
     private func countPhrase(_ n: Int, _ noun: String) -> String {
         "\(n) \(noun)\(n == 1 ? "" : "s")"
+    }
+
+    /// The agent name for attention copy: the shared source's short name when every pending
+    /// attention item comes from one agent (so "Copilot has a question" reads honestly), or a
+    /// neutral "An agent" when a mix of agents is waiting. Keeps the hero from hard-coding
+    /// "Claude" on a Copilot-only or mixed roster.
+    private var attentionAgentName: String {
+        let sources = Set(items.filter { $0.needsResponse }.map(\.source))
+        if sources.count == 1, let only = sources.first { return only.shortName }
+        return "An agent"
+    }
+
+    /// Roster-derived facts the hero copy needs, computed from a single `sessionRows` pass so
+    /// the quiet/working tiers of `headline`/`subline`/`mood` agree with the dashboard strip.
+    private struct RosterFacts {
+        /// Total session rows — the roster size the dashboard strip and feed show.
+        let count: Int
+        /// How many rows are actively working.
+        let workingCount: Int
+        /// The distinct agents among the working rows, used to name the working headline: one
+        /// source → its name ("Claude's on it"), mixed or none → neutral copy ("Agents at work").
+        let workingSources: Set<AgentSource>
+        /// Whether any session is working right now.
+        var anyWorking: Bool { workingCount > 0 }
+    }
+
+    /// Computes `RosterFacts` from one `sessionRows` evaluation. `sessionRows` does real merge
+    /// work, so this runs once per `headline`/`subline`/`mood` read that reaches the roster
+    /// tiers — deliberately not cached across runloop ticks, since the roster changes as
+    /// sessions come and go and a stale snapshot would let the hero drift from the feed again.
+    private func rosterFacts() -> RosterFacts {
+        let rows = sessionRows
+        var workingCount = 0
+        var workingSources: Set<AgentSource> = []
+        for row in rows where row.status == .working {
+            workingCount += 1
+            workingSources.insert(row.source)
+        }
+        return RosterFacts(count: rows.count, workingCount: workingCount, workingSources: workingSources)
     }
 
     // MARK: - Session roster (disk scan + live merge)
